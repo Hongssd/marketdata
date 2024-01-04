@@ -8,22 +8,25 @@ import (
 	"time"
 
 	"github.com/Hongssd/mybinanceapi"
-	"github.com/Hongssd/myokxapi"
 	"github.com/robfig/cron/v3"
 )
 
 type BinanceOrderBook struct {
+	parent          *BinanceMarketData
 	SpotOrderBook   *binanceOrderBookBase
 	FutureOrderBook *binanceOrderBookBase
 	SwapOrderBook   *binanceOrderBookBase
 }
 
 type binanceOrderBookBase struct {
+	parent                    *BinanceOrderBook
 	serverTimeDelta           int64
 	limitRestCountPerMinute   int64
 	currentRestCount          int64
 	perConnSubNum             int64
 	uSpeed                    string
+	callBackDepthLevel        int64
+	callBackDepthTimeoutMilli int64
 	Exchange                  Exchange
 	AccountType               BinanceAccountType
 	OrderBookCacheMap         *MySyncMap[string, map[int64]*mybinanceapi.WsDepth]
@@ -35,9 +38,8 @@ type binanceOrderBookBase struct {
 	WsClientMap               *MySyncMap[string, *mybinanceapi.WsStreamClient]
 	SubMap                    *MySyncMap[string, *mybinanceapi.Subscription[mybinanceapi.WsDepth]]
 	IsInitActionMu            *MySyncMap[string, *sync.Mutex]
-	CallBackMap               *MySyncMap[string, func(depth *Depth)]
+	CallBackMap               *MySyncMap[string, func(depth *Depth, err error)]
 }
-
 
 func (b *BinanceOrderBook) getBaseMapFromAccountType(accountType BinanceAccountType) (*binanceOrderBookBase, error) {
 	switch accountType {
@@ -51,43 +53,14 @@ func (b *BinanceOrderBook) getBaseMapFromAccountType(accountType BinanceAccountT
 	return nil, ErrorAccountType
 }
 
-// 封装好的获取深度方法
-func (b *BinanceOrderBook) getDepth(BinanceAccountType BinanceAccountType, symbol string, level int, timeoutMilli int64) (*Depth, error) {
-	bmap, err := b.getBaseMapFromAccountType(BinanceAccountType)
-	if err != nil {
-		return nil, err
-	}
-
-	depth, ok := bmap.OrderBookMap.Load(symbol)
-	if !ok {
-		err := fmt.Errorf("symbol:%s depth not found", symbol)
-		return nil, err
-	}
-	orderBook, ok := bmap.OrderBookRBTreeMap.Load(symbol)
-	if !ok {
-		err := fmt.Errorf("symbol:%s bidMap not found", symbol)
-		log.Error(err)
-		return nil, err
-	}
-	newDepth, err := orderBook.LoadToDepth(depth, level)
-	if err != nil {
-		return nil, err
-	}
-
-	//如果超时限制大于0 判断深度是否超时
-	if timeoutMilli > 0 && time.Now().UnixMilli()-newDepth.Timestamp > timeoutMilli {
-		err := fmt.Errorf("symbol:%s depth timeout", symbol)
-		return nil, err
-	}
-	return newDepth, nil
-}
-
 func (b *BinanceOrderBook) newBinanceOrderBookBase(config BinanceOrderBookConfigBase) *binanceOrderBookBase {
 	return &binanceOrderBookBase{
 		Exchange:                  BINANCE,
 		uSpeed:                    config.USpeed,
 		limitRestCountPerMinute:   config.LimitRestCountPerMinute,
 		perConnSubNum:             config.PerConnSubNum,
+		callBackDepthLevel:        config.CallBackDepthLevel,
+		callBackDepthTimeoutMilli: config.CallBackDepthTimeoutMilli,
 		OrderBookCacheMap:         GetPointer(NewMySyncMap[string, map[int64]*mybinanceapi.WsDepth]()),
 		OrderBookRBTreeMap:        GetPointer(NewMySyncMap[string, *OrderBook]()),
 		OrderBookReadyUpdateIdMap: GetPointer(NewMySyncMap[string, int64]()),
@@ -96,19 +69,14 @@ func (b *BinanceOrderBook) newBinanceOrderBookBase(config BinanceOrderBookConfig
 		WsClientMap:               GetPointer(NewMySyncMap[string, *mybinanceapi.WsStreamClient]()),
 		SubMap:                    GetPointer(NewMySyncMap[string, *mybinanceapi.Subscription[mybinanceapi.WsDepth]]()),
 		IsInitActionMu:            GetPointer(NewMySyncMap[string, *sync.Mutex]()),
-		CallBackMap:               GetPointer(NewMySyncMap[string, func(depth *Depth)]()),
+		CallBackMap:               GetPointer(NewMySyncMap[string, func(depth *Depth, err error)]()),
 	}
 
 }
 
-
-
 // 初始化
 func (b *BinanceOrderBook) init() {
-
 	mybinanceapi.SetLogger(log)
-	myokxapi.SetLogger(log)
-
 	c := cron.New(cron.WithSeconds())
 	refresh := func() {
 		var wg sync.WaitGroup
@@ -122,14 +90,14 @@ func (b *BinanceOrderBook) init() {
 		}()
 		go func() {
 			defer wg.Done()
-			err := b.RefreshDelta(BINANCE_SPOT)
+			err := b.RefreshDelta(BINANCE_FUTURE)
 			if err != nil {
 				log.Error(err)
 			}
 		}()
 		go func() {
 			defer wg.Done()
-			err := b.RefreshDelta(BINANCE_SPOT)
+			err := b.RefreshDelta(BINANCE_SWAP)
 			if err != nil {
 				log.Error(err)
 			}
@@ -220,7 +188,10 @@ func (b *BinanceOrderBook) GetCurrentOrNewWsClient(accountType BinanceAccountTyp
 	return wsClient, nil
 }
 
-func (b *BinanceOrderBook) SubscribeDepth(accountType BinanceAccountType, symbol string, callback func(depth *Depth)) error {
+func (b *BinanceOrderBook) SubscribeDepth(accountType BinanceAccountType, symbol string) error {
+	return b.SubscribeDepthWithCallBack(accountType, symbol, nil)
+}
+func (b *BinanceOrderBook) SubscribeDepthWithCallBack(accountType BinanceAccountType, symbol string, callback func(depth *Depth, err error)) error {
 	client, err := b.GetCurrentOrNewWsClient(accountType)
 	if err != nil {
 		return err
@@ -228,18 +199,18 @@ func (b *BinanceOrderBook) SubscribeDepth(accountType BinanceAccountType, symbol
 
 	switch accountType {
 	case BINANCE_SPOT:
-		err = b.SpotOrderBook.SubscribeBinanceDepth(client, symbol, callback)
+		err = b.SpotOrderBook.subscribeBinanceDepth(client, symbol, callback)
 	case BINANCE_FUTURE:
-		err = b.FutureOrderBook.SubscribeBinanceDepth(client, symbol, callback)
+		err = b.FutureOrderBook.subscribeBinanceDepth(client, symbol, callback)
 	case BINANCE_SWAP:
-		err = b.SwapOrderBook.SubscribeBinanceDepth(client, symbol, callback)
+		err = b.SwapOrderBook.subscribeBinanceDepth(client, symbol, callback)
 	}
 
 	return err
 }
-func (b *BinanceOrderBook) SubscribeDepths(accountType BinanceAccountType, symbols []string, callback func(depth *Depth)) error {
+func (b *BinanceOrderBook) SubscribeDepthsWithCallBack(accountType BinanceAccountType, symbols []string, callback func(depth *Depth, err error)) error {
 	for _, symbol := range symbols {
-		err := b.SubscribeDepth(accountType, symbol, callback)
+		err := b.SubscribeDepthWithCallBack(accountType, symbol, callback)
 		if err != nil {
 			return err
 		}
@@ -247,8 +218,49 @@ func (b *BinanceOrderBook) SubscribeDepths(accountType BinanceAccountType, symbo
 	return nil
 }
 
+func (b *BinanceOrderBook) SubscribeDepths(accountType BinanceAccountType, symbols []string) error {
+	for _, symbol := range symbols {
+		err := b.SubscribeDepth(accountType, symbol)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// 封装好的获取深度方法
+func (b *BinanceOrderBook) GetDepth(BinanceAccountType BinanceAccountType, symbol string, level int, timeoutMilli int64) (*Depth, error) {
+	bmap, err := b.getBaseMapFromAccountType(BinanceAccountType)
+	if err != nil {
+		return nil, err
+	}
+
+	depth, ok := bmap.OrderBookMap.Load(symbol)
+	if !ok {
+		err := fmt.Errorf("symbol:%s depth not found", symbol)
+		return nil, err
+	}
+	orderBook, ok := bmap.OrderBookRBTreeMap.Load(symbol)
+	if !ok {
+		err := fmt.Errorf("symbol:%s bidMap not found", symbol)
+		log.Error(err)
+		return nil, err
+	}
+	newDepth, err := orderBook.LoadToDepth(depth, level)
+	if err != nil {
+		return nil, err
+	}
+
+	//如果超时限制大于0 判断深度是否超时
+	if timeoutMilli > 0 && time.Now().UnixMilli()-newDepth.Timestamp > timeoutMilli {
+		err := fmt.Errorf("symbol:%s depth timeout", symbol)
+		return nil, err
+	}
+	return newDepth, nil
+}
+
 // 订阅币安深度
-func (b *binanceOrderBookBase) SubscribeBinanceDepth(binanceWsClient *mybinanceapi.WsStreamClient, symbol string, callback func(depth *Depth)) error {
+func (b *binanceOrderBookBase) subscribeBinanceDepth(binanceWsClient *mybinanceapi.WsStreamClient, symbol string, callback func(depth *Depth, err error)) error {
 
 	binanceSub, err := binanceWsClient.SubscribeIncrementDepth(symbol, b.uSpeed)
 	if err != nil {
@@ -276,22 +288,58 @@ func (b *binanceOrderBookBase) SubscribeBinanceDepth(binanceWsClient *mybinancea
 					b.saveBinanceDepthCache(result)
 					continue
 				}
-				//保存至OrderBook
-				depth, err := b.saveBinanceDepthOrderBook(result, false)
-				if err != nil {
-					//保存失败，清空相关数据并重新初始化深度，不需要重新订阅
-					//清空相关数据
-					b.OrderBookReadyUpdateIdMap.Delete(Symbol)
-					b.OrderBookMap.Delete(Symbol)
-					b.OrderBookLastUpdateIdMap.Delete(Symbol)
-					b.OrderBookCacheMap.Delete(Symbol)
-					b.OrderBookRBTreeMap.Delete(Symbol)
 
-					//重新初始化深度
-					go b.initBinanceDepthFunc(result.Symbol)
+				//判断是否丢包
+				if lastLowerU, ok := b.OrderBookLastUpdateIdMap.Load(Symbol); ok {
+					if b.AccountType == BINANCE_SPOT {
+						if result.UpperU > lastLowerU+1 {
+							// log.Warnf("发生丢包: %s:%s U:%d, lu:%d", result.AccountType, result.Symbol, result.UpperU, lastLowerU)
+							//清空相关数据
+							b.OrderBookReadyUpdateIdMap.Delete(Symbol)
+							b.OrderBookMap.Delete(Symbol)
+							b.OrderBookLastUpdateIdMap.Delete(Symbol)
+							b.OrderBookCacheMap.Delete(Symbol)
+							b.OrderBookRBTreeMap.Delete(Symbol)
+							//重新初始化深度
+							go b.initBinanceDepthFunc(result.Symbol)
+							continue
+						} else if result.UpperU < lastLowerU+1 && result.LowerU >= lastLowerU+1 {
+							// log.Infof("首个正常数据包: %s:%s U:%d, u:%d lu:%d", result.AccountType, result.Symbol, result.UpperU, result.LowerU, lastLowerU)
+						} else {
+							// log.Infof("正常数据包: %s:%s U:%d, lu:%d", result.AccountType, result.Symbol, result.UpperU, lastLowerU)
+						}
+					} else {
+						if result.PreU > lastLowerU {
+							// log.Warnf("发生丢包: %s:%s preu:%d, lu:%d", result.AccountType, result.Symbol, result.PreU, lastLowerU)
+
+							//清空相关数据
+							b.OrderBookReadyUpdateIdMap.Delete(Symbol)
+							b.OrderBookMap.Delete(Symbol)
+							b.OrderBookLastUpdateIdMap.Delete(Symbol)
+							b.OrderBookCacheMap.Delete(Symbol)
+							b.OrderBookRBTreeMap.Delete(Symbol)
+							//重新初始化深度
+							go b.initBinanceDepthFunc(result.Symbol)
+							continue
+						} else if result.UpperU <= lastLowerU && result.LowerU >= lastLowerU {
+							// log.Infof("首个正常数据包: %s:%s preu:%d, u:%d U:%d lu:%d", result.AccountType, result.Symbol, result.PreU, result.LowerU, result.UpperU, lastLowerU)
+						} else {
+							// log.Infof("正常数据包: %s:%s preu:%d, lu:%d", result.AccountType, result.Symbol, result.PreU, lastLowerU)
+						}
+					}
+				}
+
+				//保存至OrderBook
+				err = b.saveBinanceDepthOrderBook(result)
+				if err != nil {
+					log.Error(err)
 					continue
 				}
-				callback(depth)
+
+				if callback == nil || b.callBackDepthLevel == 0 {
+					continue
+				}
+				callback(b.parent.GetDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli))
 			case <-binanceSub.CloseChan():
 				log.Info("订阅已关闭: ", binanceSub.Params)
 				return
@@ -305,7 +353,7 @@ func (b *binanceOrderBookBase) SubscribeBinanceDepth(binanceWsClient *mybinancea
 		log.Error(err)
 		return err
 	}
-	log.Info("初始化币安深度成功: ", symbol)
+	// log.Infof("初始化币安深度成功: %s %s", b.AccountType, symbol)
 	return nil
 }
 
@@ -334,7 +382,7 @@ func (b *binanceOrderBookBase) ReSubscribeBinanceDepth(Symbol string) error {
 		err := fmt.Errorf("symbol:%s callBack not found", Symbol)
 		return err
 	}
-	return b.SubscribeBinanceDepth(binanceWsClient, Symbol, callBack)
+	return b.subscribeBinanceDepth(binanceWsClient, Symbol, callBack)
 }
 
 // 初始化币安深度
@@ -405,10 +453,9 @@ func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
 				return err
 			}
 			orderBook.PutAsk(p.InexactFloat64(), q.InexactFloat64())
-			b.OrderBookReadyUpdateIdMap.Store(Symbol, depth.LastUpdateId)
-			b.OrderBookLastUpdateIdMap.Store(Symbol, depth.LastUpdateId)
-		}
 
+		}
+		b.OrderBookLastUpdateIdMap.Store(Symbol, depth.LastUpdateId)
 	case BINANCE_FUTURE:
 		//重新初始化
 		depth, err := binance.NewFutureRestClient("", "").NewFutureDepth().Symbol(Symbol).Limit(50).Do()
@@ -432,10 +479,9 @@ func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
 				return err
 			}
 			orderBook.PutAsk(p.InexactFloat64(), q.InexactFloat64())
-			b.OrderBookReadyUpdateIdMap.Store(Symbol, depth.LastUpdateId)
-			b.OrderBookLastUpdateIdMap.Store(Symbol, depth.LastUpdateId)
-		}
 
+		}
+		b.OrderBookLastUpdateIdMap.Store(Symbol, depth.LastUpdateId)
 	case BINANCE_SWAP:
 		//重新初始化
 		depth, err := binance.NewSwapRestClient("", "").NewSwapDepth().Symbol(Symbol).Limit(50).Do()
@@ -459,22 +505,30 @@ func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
 				return err
 			}
 			orderBook.PutAsk(p.InexactFloat64(), q.InexactFloat64())
-			b.OrderBookReadyUpdateIdMap.Store(Symbol, depth.LastUpdateId)
-			b.OrderBookLastUpdateIdMap.Store(Symbol, depth.LastUpdateId)
+
 		}
+		b.OrderBookLastUpdateIdMap.Store(Symbol, depth.LastUpdateId)
 	}
 
+	// log.Info(b.OrderBookLastUpdateIdMap.Load(Symbol))
 	return nil
 }
 
 // 将Depth缓存保存至OrderBook
 func (b *binanceOrderBookBase) saveBinanceDepthOrderBookFromCache(Symbol string) error {
 
-	readyId, err := b.checkBinanceDepthIsReady(Symbol)
-	if err != nil {
+	// readyId, err := b.checkBinanceDepthIsReady(Symbol)
+	// if err != nil {
+	// 	log.Error(err)
+	// 	return err
+	// }
+	lastUpdateId, ok := b.OrderBookLastUpdateIdMap.Load(Symbol)
+	if !ok {
+		err := fmt.Errorf("%s lastUpdateId not found", Symbol)
 		log.Error(err)
 		return err
 	}
+	// log.Info(lastUpdateId)
 
 	//读取缓存到OrderBook
 	cacheMap, ok := b.OrderBookCacheMap.Load(Symbol)
@@ -490,26 +544,43 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBookFromCache(Symbol string)
 	}
 	sort.Sort(SortBinanceWsDepthSlice(cacheList))
 
+	// log.Info(lastUpdateId)
+	// log.Info(len(cacheList))
 	targetCacheList := []mybinanceapi.WsDepth{}
 	for index, v := range cacheList {
-		if v.UpperU <= readyId && v.LowerU >= readyId {
-			// log.Warn("v:", v)
-			_, err := b.saveBinanceDepthOrderBook(v, true)
-			if err != nil {
-				log.Error(err)
-				return err
+		if b.AccountType != BINANCE_SPOT {
+			if v.UpperU <= lastUpdateId && v.LowerU >= lastUpdateId {
+				err := b.saveBinanceDepthOrderBook(v)
+				if err != nil {
+					log.Error(err)
+					return err
+				}
+				targetCacheList = cacheList[index:]
+				break
 			}
-			targetCacheList = cacheList[index+1:]
+		} else {
+			if v.UpperU < lastUpdateId+1 && v.LowerU >= lastUpdateId+1 {
+				targetCacheList = cacheList[index:]
+				err := b.saveBinanceDepthOrderBook(v)
+				if err != nil {
+					log.Error(err)
+					return err
+				}
+				break
+			}
 		}
 	}
-
+	// log.Info(len(targetCacheList))
 	for _, v := range targetCacheList {
-		_, err := b.saveBinanceDepthOrderBook(v, false)
+		err := b.saveBinanceDepthOrderBook(v)
 		if err != nil {
-			// log.Error(err)
+			log.Error(err)
 			return err
 		}
+		lastUpdateId = v.LowerU
 	}
+
+	b.OrderBookReadyUpdateIdMap.Store(Symbol, lastUpdateId)
 
 	return nil
 }
@@ -517,6 +588,7 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBookFromCache(Symbol string)
 // 将Depth缓存
 func (b *binanceOrderBookBase) saveBinanceDepthCache(result mybinanceapi.WsDepth) {
 	Symbol := result.Symbol
+
 	cacheMap, ok := b.OrderBookCacheMap.Load(Symbol)
 	if !ok {
 		cacheMap = map[int64]*mybinanceapi.WsDepth{}
@@ -526,19 +598,30 @@ func (b *binanceOrderBookBase) saveBinanceDepthCache(result mybinanceapi.WsDepth
 }
 
 // 将Depth保存至OrderBook
-func (b *binanceOrderBookBase) saveBinanceDepthOrderBook(result mybinanceapi.WsDepth, unCheck bool) (*Depth, error) {
+func (b *binanceOrderBookBase) saveBinanceDepthOrderBook(result mybinanceapi.WsDepth) error {
 	Symbol := result.Symbol
-	if !unCheck {
-		lastLowerU, ok := b.OrderBookLastUpdateIdMap.Load(Symbol)
-		if ok {
-			if result.PreU != lastLowerU {
-				err := fmt.Errorf("%s lastLowerU:%d,preU:%d", Symbol, lastLowerU, result.PreU)
-				// log.Error(err)
-				return nil, err
-			}
-		}
-		// log.Warnf("%s lastLowerU:%d,preU:%d", Symbol, lastLowerU, result.PreU)
-	}
+	// if !unCheck {
+	// 	lastLowerU, ok := b.OrderBookLastUpdateIdMap.Load(Symbol)
+	// 	if ok {
+	// 		if b.AccountType != BINANCE_SPOT {
+	// 			if result.PreU != lastLowerU {
+	// 				err := fmt.Errorf("%s lastLowerU:%d,preU:%d", Symbol, lastLowerU, result.PreU)
+	// 				log.Error(err)
+	// 				return nil, err
+	// 			}
+	// 			log.Warnf("%s lastLowerU:%d,preU:%d", Symbol, lastLowerU, result.PreU)
+	// 		} else {
+	// 			if result.UpperU != lastLowerU+1 {
+	// 				err := fmt.Errorf("%s lastLowerU:%d,UpperU:%d", Symbol, lastLowerU, result.UpperU)
+	// 				log.Error(err)
+	// 				return nil, err
+	// 			}
+	// 			log.Warnf("%s lastLowerU:%d,UpperU:%d", Symbol, lastLowerU, result.UpperU)
+	// 		}
+
+	// 	}
+
+	// }
 
 	b.OrderBookLastUpdateIdMap.Store(Symbol, result.LowerU)
 
@@ -581,7 +664,7 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBook(result mybinanceapi.WsD
 	}
 	b.OrderBookMap.Store(Symbol, depth)
 
-	return depth, nil
+	return nil
 }
 
 func (b *BinanceOrderBook) RefreshDelta(accountType BinanceAccountType) error {
