@@ -155,20 +155,23 @@ func (b *BinanceOrderBook) GetCurrentOrNewWsClient(accountType BinanceAccountTyp
 		return nil, ErrorAccountType
 	}
 
+	// log.Info(WsClientList)
+
 	var wsClient *mybinanceapi.WsStreamClient
 	var err error
 	for _, v := range *WsClientList {
-		currentSubList, nerr := wsClient.CurrentSubscribeList()
+		currentSubList, nerr := v.CurrentSubscribeList()
 		if nerr != nil {
 			err = nerr
 			break
 		}
-		if len(currentSubList) >= perConnSubNum {
+		if len(currentSubList) < perConnSubNum {
 			wsClient = v
 			err = nil
 			break
 		}
 	}
+
 	if wsClient == nil && err == nil {
 		//新建链接
 		switch accountType {
