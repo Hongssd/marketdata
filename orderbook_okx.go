@@ -179,7 +179,7 @@ func (o *OkxOrderBook) subscribeOkxDepth(okxWsClient *myokxapi.PublicWsStreamCli
 	}
 	o.WsClientMap.Store(Symbol, okxWsClient)
 	o.SubMap.Store(Symbol, okxSub)
-
+	o.CallBackMap.Store(Symbol, callback)
 	go func() {
 		for {
 			select {
