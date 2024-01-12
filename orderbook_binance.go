@@ -34,7 +34,7 @@ type binanceOrderBookBase struct {
 	OrderBookReadyUpdateIdMap *MySyncMap[string, int64]
 	OrderBookMap              *MySyncMap[string, *Depth]
 	OrderBookLastUpdateIdMap  *MySyncMap[string, int64]
-	WsClientList              []*mybinanceapi.WsStreamClient
+	WsClientListMap           *MySyncMap[*mybinanceapi.WsStreamClient, int64]
 	WsClientMap               *MySyncMap[string, *mybinanceapi.WsStreamClient]
 	SubMap                    *MySyncMap[string, *mybinanceapi.Subscription[mybinanceapi.WsDepth]]
 	IsInitActionMu            *MySyncMap[string, *sync.Mutex]
@@ -66,6 +66,7 @@ func (b *BinanceOrderBook) newBinanceOrderBookBase(config BinanceOrderBookConfig
 		OrderBookReadyUpdateIdMap: GetPointer(NewMySyncMap[string, int64]()),
 		OrderBookMap:              GetPointer(NewMySyncMap[string, *Depth]()),
 		OrderBookLastUpdateIdMap:  GetPointer(NewMySyncMap[string, int64]()),
+		WsClientListMap:           GetPointer(NewMySyncMap[*mybinanceapi.WsStreamClient, int64]()),
 		WsClientMap:               GetPointer(NewMySyncMap[string, *mybinanceapi.WsStreamClient]()),
 		SubMap:                    GetPointer(NewMySyncMap[string, *mybinanceapi.Subscription[mybinanceapi.WsDepth]]()),
 		IsInitActionMu:            GetPointer(NewMySyncMap[string, *sync.Mutex]()),
@@ -139,18 +140,18 @@ func (b *BinanceOrderBook) GetServerTimeDelta(accountType BinanceAccountType) in
 }
 
 func (b *BinanceOrderBook) GetCurrentOrNewWsClient(accountType BinanceAccountType) (*mybinanceapi.WsStreamClient, error) {
-	var WsClientList *[]*mybinanceapi.WsStreamClient
-	perConnSubNum := 0
+	var WsClientListMap *MySyncMap[*mybinanceapi.WsStreamClient, int64]
+	perConnSubNum := int64(0)
 	switch accountType {
 	case BINANCE_SPOT:
-		WsClientList = &b.SpotOrderBook.WsClientList
-		perConnSubNum = int(b.SpotOrderBook.perConnSubNum)
+		WsClientListMap = b.SpotOrderBook.WsClientListMap
+		perConnSubNum = b.SpotOrderBook.perConnSubNum
 	case BINANCE_FUTURE:
-		WsClientList = &b.FutureOrderBook.WsClientList
-		perConnSubNum = int(b.FutureOrderBook.perConnSubNum)
+		WsClientListMap = b.FutureOrderBook.WsClientListMap
+		perConnSubNum = b.FutureOrderBook.perConnSubNum
 	case BINANCE_SWAP:
-		WsClientList = &b.SwapOrderBook.WsClientList
-		perConnSubNum = int(b.SwapOrderBook.perConnSubNum)
+		WsClientListMap = b.SwapOrderBook.WsClientListMap
+		perConnSubNum = b.SwapOrderBook.perConnSubNum
 	default:
 		return nil, ErrorAccountType
 	}
@@ -159,20 +160,15 @@ func (b *BinanceOrderBook) GetCurrentOrNewWsClient(accountType BinanceAccountTyp
 
 	var wsClient *mybinanceapi.WsStreamClient
 	var err error
-	for _, v := range *WsClientList {
-		currentSubList, nerr := v.CurrentSubscribeList()
-		if nerr != nil {
-			err = nerr
-			break
+	WsClientListMap.Range(func(k *mybinanceapi.WsStreamClient, v int64) bool {
+		if v < perConnSubNum {
+			wsClient = k
+			return false
 		}
-		if len(currentSubList) < perConnSubNum {
-			wsClient = v
-			err = nil
-			break
-		}
-	}
+		return true
+	})
 
-	if wsClient == nil && err == nil {
+	if wsClient == nil {
 		//新建链接
 		switch accountType {
 		case BINANCE_SPOT:
@@ -186,7 +182,7 @@ func (b *BinanceOrderBook) GetCurrentOrNewWsClient(accountType BinanceAccountTyp
 		if err != nil {
 			return nil, err
 		}
-		*WsClientList = append(*WsClientList, wsClient)
+		WsClientListMap.Store(wsClient, 0)
 	}
 	return wsClient, nil
 }

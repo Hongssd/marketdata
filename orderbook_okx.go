@@ -113,7 +113,7 @@ func (o *OkxOrderBook) GetCurrentOrNewWsClient() (*myokxapi.PublicWsStreamClient
 		}
 		return true
 	})
-	if wsClient == nil && err == nil {
+	if wsClient == nil {
 		//新建链接
 		wsClient = okx.NewPublicWsStreamClient()
 		err = wsClient.OpenConn()
