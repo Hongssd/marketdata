@@ -353,6 +353,11 @@ func (b *binanceOrderBookBase) subscribeBinanceDepth(binanceWsClient *mybinancea
 		return err
 	}
 	// log.Infof("初始化币安深度成功: %s %s", b.AccountType, symbol)
+	count, ok := b.WsClientListMap.Load(binanceWsClient)
+	if !ok {
+		b.WsClientListMap.Store(binanceWsClient, 1)
+	}
+	b.WsClientListMap.Store(binanceWsClient, count+1)
 	return nil
 }
 
