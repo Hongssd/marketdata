@@ -29,7 +29,7 @@ type binanceOrderBookBase struct {
 	callBackDepthTimeoutMilli int64
 	Exchange                  Exchange
 	AccountType               BinanceAccountType
-	OrderBookCacheMap         *MySyncMap[string, map[int64]*mybinanceapi.WsDepth]
+	OrderBookCacheMap         *MySyncMap[string, *MySyncMap[int64, *mybinanceapi.WsDepth]]
 	OrderBookRBTreeMap        *MySyncMap[string, *OrderBook]
 	OrderBookReadyUpdateIdMap *MySyncMap[string, int64]
 	OrderBookMap              *MySyncMap[string, *Depth]
@@ -61,7 +61,7 @@ func (b *BinanceOrderBook) newBinanceOrderBookBase(config BinanceOrderBookConfig
 		perConnSubNum:             config.PerConnSubNum,
 		callBackDepthLevel:        config.CallBackDepthLevel,
 		callBackDepthTimeoutMilli: config.CallBackDepthTimeoutMilli,
-		OrderBookCacheMap:         GetPointer(NewMySyncMap[string, map[int64]*mybinanceapi.WsDepth]()),
+		OrderBookCacheMap:         GetPointer(NewMySyncMap[string, *MySyncMap[int64, *mybinanceapi.WsDepth]]()),
 		OrderBookRBTreeMap:        GetPointer(NewMySyncMap[string, *OrderBook]()),
 		OrderBookReadyUpdateIdMap: GetPointer(NewMySyncMap[string, int64]()),
 		OrderBookMap:              GetPointer(NewMySyncMap[string, *Depth]()),
@@ -537,15 +537,17 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBookFromCache(Symbol string)
 	//读取缓存到OrderBook
 	cacheMap, ok := b.OrderBookCacheMap.Load(Symbol)
 	if !ok {
-		cacheMap = map[int64]*mybinanceapi.WsDepth{}
+		newMap := NewMySyncMap[int64, *mybinanceapi.WsDepth]()
+		cacheMap = &newMap
 		b.OrderBookCacheMap.Store(Symbol, cacheMap)
 	}
 
 	//按照LowerU排序
 	var cacheList []mybinanceapi.WsDepth
-	for _, v := range cacheMap {
+	cacheMap.Range(func(k int64, v *mybinanceapi.WsDepth) bool {
 		cacheList = append(cacheList, *v)
-	}
+		return true
+	})
 	sort.Sort(SortBinanceWsDepthSlice(cacheList))
 
 	// log.Info(lastUpdateId)
@@ -595,10 +597,11 @@ func (b *binanceOrderBookBase) saveBinanceDepthCache(result mybinanceapi.WsDepth
 
 	cacheMap, ok := b.OrderBookCacheMap.Load(Symbol)
 	if !ok {
-		cacheMap = map[int64]*mybinanceapi.WsDepth{}
+		newMap := NewMySyncMap[int64, *mybinanceapi.WsDepth]()
+		cacheMap = &newMap
 		b.OrderBookCacheMap.Store(Symbol, cacheMap)
 	}
-	cacheMap[result.LowerU] = &result
+	cacheMap.Store(result.LowerU, &result)
 }
 
 // 将Depth保存至OrderBook
