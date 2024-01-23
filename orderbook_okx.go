@@ -125,6 +125,7 @@ func (o *OkxOrderBook) GetCurrentOrNewWsClient() (*myokxapi.PublicWsStreamClient
 			log.Error(err)
 			return nil, err
 		}
+		log.Info("ws登录成功")
 		o.WsClientListMap.Store(wsClient, 0)
 	}
 	return wsClient, nil
