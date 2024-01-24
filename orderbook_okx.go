@@ -70,7 +70,7 @@ func (o *OkxOrderBook) GetDepth(symbol string, level int, timeoutMilli int64) (*
 	//如果超时限制大于0 判断深度是否超时
 	if timeoutMilli > 0 && time.Now().UnixMilli()-newDepth.Timestamp > timeoutMilli {
 		err := fmt.Errorf("symbol:%s depth timeout", symbol)
-		return nil, err
+		return newDepth, err
 	}
 	return newDepth, nil
 }
