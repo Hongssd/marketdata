@@ -20,6 +20,7 @@ func SetLogger(logger *logrus.Logger) {
 type BinanceMarketData struct {
 	mybinanceapi.Client
 	*BinanceOrderBook
+	*BinanceKline
 }
 
 func NewBinanceMarketDataDefault() *BinanceMarketData {
@@ -47,6 +48,23 @@ func (bm *BinanceMarketData) InitBinanceOrderBook(config BinanceOrderBookConfig)
 	b.init()
 	bm.BinanceOrderBook = b
 	b.parent = bm
+	return nil
+}
+
+func (bm *BinanceMarketData) InitBinanceKline(config BinanceKlineConfig) error {
+	b := &BinanceKline{}
+	b.SpotKline = b.newBinanceKlineBase(config.SpotConfig)
+	b.SpotKline.AccountType = BINANCE_SPOT
+	b.SpotKline.parent = b
+	b.FutureKline = b.newBinanceKlineBase(config.FutureConfig)
+	b.FutureKline.AccountType = BINANCE_FUTURE
+	b.FutureKline.parent = b
+	b.SwapKline = b.newBinanceKlineBase(config.SwapConfig)
+	b.SwapKline.AccountType = BINANCE_SWAP
+	b.SwapKline.parent = b
+	bm.BinanceKline = b
+	b.parent = bm
+	b.init()
 	return nil
 }
 

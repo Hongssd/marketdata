@@ -34,13 +34,14 @@ type binanceOrderBookBase struct {
 	OrderBookReadyUpdateIdMap *MySyncMap[string, int64]
 	OrderBookMap              *MySyncMap[string, *Depth]
 	OrderBookLastUpdateIdMap  *MySyncMap[string, int64]
-	WsClientListMap           *MySyncMap[*mybinanceapi.WsStreamClient, int64]
-	WsClientMap               *MySyncMap[string, *mybinanceapi.WsStreamClient]
-	SubMap                    *MySyncMap[string, *mybinanceapi.Subscription[mybinanceapi.WsDepth]]
-	IsInitActionMu            *MySyncMap[string, *sync.Mutex]
-	CallBackMap               *MySyncMap[string, func(depth *Depth, err error)]
+	WsClientListMap           *MySyncMap[*mybinanceapi.WsStreamClient, int64]                      //wsClinet->subCount
+	WsClientMap               *MySyncMap[string, *mybinanceapi.WsStreamClient]                     //symbol->wsClient
+	SubMap                    *MySyncMap[string, *mybinanceapi.Subscription[mybinanceapi.WsDepth]] //symbol->subscribe
+	IsInitActionMu            *MySyncMap[string, *sync.Mutex]                                      //symbol->mutex
+	CallBackMap               *MySyncMap[string, func(depth *Depth, err error)]                    //symbol->callback
 }
 
+// 根据类型获取基础
 func (b *BinanceOrderBook) getBaseMapFromAccountType(accountType BinanceAccountType) (*binanceOrderBookBase, error) {
 	switch accountType {
 	case BINANCE_SPOT:
@@ -53,6 +54,7 @@ func (b *BinanceOrderBook) getBaseMapFromAccountType(accountType BinanceAccountT
 	return nil, ErrorAccountType
 }
 
+// 新建币安深度基础
 func (b *BinanceOrderBook) newBinanceOrderBookBase(config BinanceOrderBookConfigBase) *binanceOrderBookBase {
 	return &binanceOrderBookBase{
 		Exchange:                  BINANCE,
@@ -84,21 +86,21 @@ func (b *BinanceOrderBook) init() {
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			err := b.RefreshDelta(BINANCE_SPOT)
+			err := b.SpotOrderBook.RefreshDelta()
 			if err != nil {
 				log.Error(err)
 			}
 		}()
 		go func() {
 			defer wg.Done()
-			err := b.RefreshDelta(BINANCE_FUTURE)
+			err := b.FutureOrderBook.RefreshDelta()
 			if err != nil {
 				log.Error(err)
 			}
 		}()
 		go func() {
 			defer wg.Done()
-			err := b.RefreshDelta(BINANCE_SWAP)
+			err := b.SwapOrderBook.RefreshDelta()
 			if err != nil {
 				log.Error(err)
 			}
@@ -107,8 +109,8 @@ func (b *BinanceOrderBook) init() {
 	}
 	refresh()
 
-	//每隔1秒更新一次服务器时间
-	_, err := c.AddFunc("*/1 * * * * *", refresh)
+	//每隔5秒更新一次服务器时间
+	_, err := c.AddFunc("*/5 * * * * *", refresh)
 	if err != nil {
 		log.Error(err)
 		return
@@ -127,6 +129,7 @@ func (b *BinanceOrderBook) init() {
 	c.Start()
 }
 
+// 获取当前服务器时间差
 func (b *BinanceOrderBook) GetServerTimeDelta(accountType BinanceAccountType) int64 {
 	switch accountType {
 	case BINANCE_SPOT:
@@ -139,6 +142,7 @@ func (b *BinanceOrderBook) GetServerTimeDelta(accountType BinanceAccountType) in
 	return 0
 }
 
+// 获取当前或新建ws客户端
 func (b *BinanceOrderBook) GetCurrentOrNewWsClient(accountType BinanceAccountType) (*mybinanceapi.WsStreamClient, error) {
 	var WsClientListMap *MySyncMap[*mybinanceapi.WsStreamClient, int64]
 	perConnSubNum := int64(0)
@@ -187,9 +191,23 @@ func (b *BinanceOrderBook) GetCurrentOrNewWsClient(accountType BinanceAccountTyp
 	return wsClient, nil
 }
 
+// 订阅深度
 func (b *BinanceOrderBook) SubscribeDepth(accountType BinanceAccountType, symbol string) error {
 	return b.SubscribeDepthWithCallBack(accountType, symbol, nil)
 }
+
+// 批量订阅深度
+func (b *BinanceOrderBook) SubscribeDepths(accountType BinanceAccountType, symbols []string) error {
+	for _, symbol := range symbols {
+		err := b.SubscribeDepth(accountType, symbol)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// 订阅深度并带上回调
 func (b *BinanceOrderBook) SubscribeDepthWithCallBack(accountType BinanceAccountType, symbol string, callback func(depth *Depth, err error)) error {
 	client, err := b.GetCurrentOrNewWsClient(accountType)
 	if err != nil {
@@ -207,19 +225,11 @@ func (b *BinanceOrderBook) SubscribeDepthWithCallBack(accountType BinanceAccount
 
 	return err
 }
+
+// 批量订阅深度并带上回调
 func (b *BinanceOrderBook) SubscribeDepthsWithCallBack(accountType BinanceAccountType, symbols []string, callback func(depth *Depth, err error)) error {
 	for _, symbol := range symbols {
 		err := b.SubscribeDepthWithCallBack(accountType, symbol, callback)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (b *BinanceOrderBook) SubscribeDepths(accountType BinanceAccountType, symbols []string) error {
-	for _, symbol := range symbols {
-		err := b.SubscribeDepth(accountType, symbol)
 		if err != nil {
 			return err
 		}
@@ -258,7 +268,7 @@ func (b *BinanceOrderBook) GetDepth(BinanceAccountType BinanceAccountType, symbo
 	return newDepth, nil
 }
 
-// 订阅币安深度
+// 订阅币安深度底层执行
 func (b *binanceOrderBookBase) subscribeBinanceDepth(binanceWsClient *mybinanceapi.WsStreamClient, symbol string, callback func(depth *Depth, err error)) error {
 
 	binanceSub, err := binanceWsClient.SubscribeIncrementDepth(symbol, b.uSpeed)
@@ -318,7 +328,12 @@ func (b *binanceOrderBookBase) subscribeBinanceDepth(binanceWsClient *mybinancea
 							b.OrderBookCacheMap.Delete(Symbol)
 							b.OrderBookRBTreeMap.Delete(Symbol)
 							//重新初始化深度
-							go b.initBinanceDepthFunc(result.Symbol)
+							go func() {
+								err := b.initBinanceDepthFunc(result.Symbol)
+								if err != nil {
+									log.Error(err)
+								}
+							}()
 							continue
 						} else if result.UpperU <= lastLowerU && result.LowerU >= lastLowerU {
 							// log.Infof("首个正常数据包: %s:%s preu:%d, u:%d U:%d lu:%d", result.AccountType, result.Symbol, result.PreU, result.LowerU, result.UpperU, lastLowerU)
@@ -674,27 +689,11 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBook(result mybinanceapi.WsD
 	return nil
 }
 
-func (b *BinanceOrderBook) RefreshDelta(accountType BinanceAccountType) error {
-	switch accountType {
-	case BINANCE_SPOT:
-		res, err := binance.NewSpotRestClient("", "").NewServerTime().Do()
-		if err != nil {
-			return err
-		}
-		b.SpotOrderBook.serverTimeDelta = time.Now().UnixMilli() - res.ServerTime
-	case BINANCE_FUTURE:
-		res, err := binance.NewFutureRestClient("", "").NewServerTime().Do()
-		if err != nil {
-			return err
-		}
-		b.FutureOrderBook.serverTimeDelta = time.Now().UnixMilli() - res.ServerTime
-	case BINANCE_SWAP:
-		res, err := binance.NewSwapRestClient("", "").NewServerTime().Do()
-		if err != nil {
-			return err
-		}
-		b.SwapOrderBook.serverTimeDelta = time.Now().UnixMilli() - res.ServerTime
+func (b *binanceOrderBookBase) RefreshDelta() error {
+	serverTimeDelta, err := BinanceGetServerTimeDelta(b.AccountType)
+	if err != nil {
+		return err
 	}
-
+	b.serverTimeDelta = serverTimeDelta
 	return nil
 }

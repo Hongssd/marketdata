@@ -88,8 +88,8 @@ func (o *OkxOrderBook) init() {
 	}
 	refresh()
 
-	//每隔1秒更新一次服务器时间
-	_, err := c.AddFunc("*/1 * * * * *", refresh)
+	//每隔10秒更新一次服务器时间
+	_, err := c.AddFunc("*/10 * * * * *", refresh)
 	if err != nil {
 		log.Error(err)
 		return

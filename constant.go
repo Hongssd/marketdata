@@ -11,6 +11,10 @@ const (
 	OKX     Exchange = "OKX"
 )
 
+func (e Exchange) String() string {
+	return string(e)
+}
+
 type BinanceAccountType string
 
 const (
@@ -18,3 +22,7 @@ const (
 	BINANCE_FUTURE BinanceAccountType = "FUTURE"
 	BINANCE_SWAP   BinanceAccountType = "SWAP"
 )
+
+func (bat BinanceAccountType) String() string {
+	return string(bat)
+}
