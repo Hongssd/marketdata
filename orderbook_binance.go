@@ -82,34 +82,13 @@ func (b *BinanceOrderBook) init() {
 	mybinanceapi.SetLogger(log)
 	c := cron.New(cron.WithSeconds())
 	refresh := func() {
-		var wg sync.WaitGroup
-		wg.Add(3)
-		go func() {
-			defer wg.Done()
-			err := b.SpotOrderBook.RefreshDelta()
-			if err != nil {
-				log.Error(err)
-			}
-		}()
-		go func() {
-			defer wg.Done()
-			err := b.FutureOrderBook.RefreshDelta()
-			if err != nil {
-				log.Error(err)
-			}
-		}()
-		go func() {
-			defer wg.Done()
-			err := b.SwapOrderBook.RefreshDelta()
-			if err != nil {
-				log.Error(err)
-			}
-		}()
-		wg.Wait()
+		b.SpotOrderBook.RefreshDelta()
+		b.FutureOrderBook.RefreshDelta()
+		b.SwapOrderBook.RefreshDelta()
 	}
 	refresh()
 
-	//每隔5秒更新一次服务器时间
+	//每隔5秒读取一次服务器时间
 	_, err := c.AddFunc("*/5 * * * * *", refresh)
 	if err != nil {
 		log.Error(err)
@@ -192,14 +171,14 @@ func (b *BinanceOrderBook) GetCurrentOrNewWsClient(accountType BinanceAccountTyp
 }
 
 // 订阅深度
-func (b *BinanceOrderBook) SubscribeDepth(accountType BinanceAccountType, symbol string) error {
-	return b.SubscribeDepthWithCallBack(accountType, symbol, nil)
+func (b *BinanceOrderBook) SubscribeOrderBook(accountType BinanceAccountType, symbol string) error {
+	return b.SubscribeOrderBookWithCallBack(accountType, symbol, nil)
 }
 
 // 批量订阅深度
-func (b *BinanceOrderBook) SubscribeDepths(accountType BinanceAccountType, symbols []string) error {
+func (b *BinanceOrderBook) SubscribeOrderBooks(accountType BinanceAccountType, symbols []string) error {
 	for _, symbol := range symbols {
-		err := b.SubscribeDepth(accountType, symbol)
+		err := b.SubscribeOrderBook(accountType, symbol)
 		if err != nil {
 			return err
 		}
@@ -208,7 +187,7 @@ func (b *BinanceOrderBook) SubscribeDepths(accountType BinanceAccountType, symbo
 }
 
 // 订阅深度并带上回调
-func (b *BinanceOrderBook) SubscribeDepthWithCallBack(accountType BinanceAccountType, symbol string, callback func(depth *Depth, err error)) error {
+func (b *BinanceOrderBook) SubscribeOrderBookWithCallBack(accountType BinanceAccountType, symbol string, callback func(depth *Depth, err error)) error {
 	client, err := b.GetCurrentOrNewWsClient(accountType)
 	if err != nil {
 		return err
@@ -227,9 +206,9 @@ func (b *BinanceOrderBook) SubscribeDepthWithCallBack(accountType BinanceAccount
 }
 
 // 批量订阅深度并带上回调
-func (b *BinanceOrderBook) SubscribeDepthsWithCallBack(accountType BinanceAccountType, symbols []string, callback func(depth *Depth, err error)) error {
+func (b *BinanceOrderBook) SubscribeOrderBooksWithCallBack(accountType BinanceAccountType, symbols []string, callback func(depth *Depth, err error)) error {
 	for _, symbol := range symbols {
-		err := b.SubscribeDepthWithCallBack(accountType, symbol, callback)
+		err := b.SubscribeOrderBookWithCallBack(accountType, symbol, callback)
 		if err != nil {
 			return err
 		}
@@ -689,11 +668,13 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBook(result mybinanceapi.WsD
 	return nil
 }
 
-func (b *binanceOrderBookBase) RefreshDelta() error {
-	serverTimeDelta, err := BinanceGetServerTimeDelta(b.AccountType)
-	if err != nil {
-		return err
+func (b *binanceOrderBookBase) RefreshDelta() {
+	switch b.AccountType {
+	case BINANCE_SPOT:
+		b.serverTimeDelta = b.parent.parent.spotServerTimeDelta
+	case BINANCE_FUTURE:
+		b.serverTimeDelta = b.parent.parent.futureServerTimeDelta
+	case BINANCE_SWAP:
+		b.serverTimeDelta = b.parent.parent.swapServerTimeDelta
 	}
-	b.serverTimeDelta = serverTimeDelta
-	return nil
 }

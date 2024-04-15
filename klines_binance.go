@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/Hongssd/mybinanceapi"
 	"github.com/robfig/cron/v3"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -316,30 +315,9 @@ func (b *BinanceKline) init() {
 	mybinanceapi.SetLogger(log)
 	c := cron.New(cron.WithSeconds())
 	refresh := func() {
-		var wg sync.WaitGroup
-		wg.Add(3)
-		go func() {
-			defer wg.Done()
-			err := b.SpotKline.RefreshDelta()
-			if err != nil {
-				log.Error(err)
-			}
-		}()
-		go func() {
-			defer wg.Done()
-			err := b.FutureKline.RefreshDelta()
-			if err != nil {
-				log.Error(err)
-			}
-		}()
-		go func() {
-			defer wg.Done()
-			err := b.SwapKline.RefreshDelta()
-			if err != nil {
-				log.Error(err)
-			}
-		}()
-		wg.Wait()
+		b.SpotKline.RefreshDelta()
+		b.FutureKline.RefreshDelta()
+		b.SwapKline.RefreshDelta()
 	}
 	refresh()
 
@@ -352,11 +330,13 @@ func (b *BinanceKline) init() {
 	c.Start()
 }
 
-func (b *binanceKlineBase) RefreshDelta() error {
-	serverTimeDelta, err := BinanceGetServerTimeDelta(b.AccountType)
-	if err != nil {
-		return err
+func (b *binanceKlineBase) RefreshDelta() {
+	switch b.AccountType {
+	case BINANCE_SPOT:
+		b.serverTimeDelta = b.parent.parent.spotServerTimeDelta
+	case BINANCE_FUTURE:
+		b.serverTimeDelta = b.parent.parent.futureServerTimeDelta
+	case BINANCE_SWAP:
+		b.serverTimeDelta = b.parent.parent.swapServerTimeDelta
 	}
-	b.serverTimeDelta = serverTimeDelta
-	return nil
 }

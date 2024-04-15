@@ -4,7 +4,9 @@ import (
 	"github.com/Hongssd/mybinanceapi"
 	"github.com/Hongssd/myokxapi"
 	jsoniter "github.com/json-iterator/go"
+	"github.com/robfig/cron/v3"
 	"github.com/sirupsen/logrus"
+	"sync"
 )
 
 var json = jsoniter.ConfigCompatibleWithStandardLibrary
@@ -19,20 +21,29 @@ func SetLogger(logger *logrus.Logger) {
 
 type BinanceMarketData struct {
 	mybinanceapi.Client
+	spotServerTimeDelta   int64
+	futureServerTimeDelta int64
+	swapServerTimeDelta   int64
 	*BinanceOrderBook
 	*BinanceKline
+	*BinanceDepth
 }
 
-func NewBinanceMarketDataDefault() *BinanceMarketData {
+func NewBinanceMarketDataDefault() (*BinanceMarketData, error) {
 	return NewBinanceMarketData("", "")
 }
-func NewBinanceMarketData(apiKey, apiSecrey string) *BinanceMarketData {
-	return &BinanceMarketData{
+func NewBinanceMarketData(apiKey, apiSecrey string) (*BinanceMarketData, error) {
+	marketData := &BinanceMarketData{
 		Client: mybinanceapi.Client{
 			ApiKey:    apiKey,
 			ApiSecret: apiSecrey,
 		},
 	}
+	err := marketData.init()
+	if err != nil {
+		return nil, err
+	}
+	return marketData, nil
 }
 func (bm *BinanceMarketData) InitBinanceOrderBook(config BinanceOrderBookConfig) error {
 	b := &BinanceOrderBook{}
@@ -65,6 +76,66 @@ func (bm *BinanceMarketData) InitBinanceKline(config BinanceKlineConfig) error {
 	bm.BinanceKline = b
 	b.parent = bm
 	b.init()
+	return nil
+}
+
+func (bm *BinanceMarketData) InitBinanceDepth(config BinanceDepthConfig) error {
+	b := &BinanceDepth{}
+	b.SpotDepth = b.newBinanceDepthBase(config.SpotConfig)
+	b.SpotDepth.AccountType = BINANCE_SPOT
+	b.SpotDepth.parent = b
+	b.FutureDepth = b.newBinanceDepthBase(config.FutureConfig)
+	b.FutureDepth.AccountType = BINANCE_FUTURE
+	b.FutureDepth.parent = b
+	b.SwapDepth = b.newBinanceDepthBase(config.SwapConfig)
+	b.SwapDepth.AccountType = BINANCE_SWAP
+	b.SwapDepth.parent = b
+	bm.BinanceDepth = b
+	b.parent = bm
+	b.init()
+	return nil
+}
+
+func (bm *BinanceMarketData) init() error {
+	c := cron.New(cron.WithSeconds())
+	refresh := func() {
+		var wg sync.WaitGroup
+		wg.Add(3)
+		go func() {
+			defer wg.Done()
+			serverTimeDelta, err := BinanceGetServerTimeDelta(BINANCE_SPOT)
+			if err != nil {
+				log.Error(err)
+			}
+			bm.spotServerTimeDelta = serverTimeDelta
+		}()
+		go func() {
+			defer wg.Done()
+			serverTimeDelta, err := BinanceGetServerTimeDelta(BINANCE_FUTURE)
+			if err != nil {
+				log.Error(err)
+			}
+			bm.futureServerTimeDelta = serverTimeDelta
+		}()
+		go func() {
+			defer wg.Done()
+			serverTimeDelta, err := BinanceGetServerTimeDelta(BINANCE_SWAP)
+			if err != nil {
+				log.Error(err)
+			}
+			bm.swapServerTimeDelta = serverTimeDelta
+		}()
+		wg.Wait()
+	}
+	refresh()
+
+	//每隔5秒更新一次服务器时间
+	_, err := c.AddFunc("*/5 * * * * *", refresh)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	c.Start()
 	return nil
 }
 
