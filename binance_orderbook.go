@@ -1,7 +1,10 @@
 package marketdata
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"golang.org/x/sync/errgroup"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -20,13 +23,13 @@ type BinanceOrderBook struct {
 
 type binanceOrderBookBase struct {
 	parent                    *BinanceOrderBook
-	serverTimeDelta           int64
 	limitRestCountPerMinute   int64
 	currentRestCount          int64
-	perConnSubNum             int64
 	uSpeed                    string
 	callBackDepthLevel        int64
 	callBackDepthTimeoutMilli int64
+	initOrderBookSize         int
+	BinanceWsClientBase
 	Exchange                  Exchange
 	AccountType               BinanceAccountType
 	OrderBookCacheMap         *MySyncMap[string, *MySyncMap[int64, *mybinanceapi.WsDepth]]
@@ -34,7 +37,6 @@ type binanceOrderBookBase struct {
 	OrderBookReadyUpdateIdMap *MySyncMap[string, int64]
 	OrderBookMap              *MySyncMap[string, *Depth]
 	OrderBookLastUpdateIdMap  *MySyncMap[string, int64]
-	WsClientListMap           *MySyncMap[*mybinanceapi.WsStreamClient, int64]                      //wsClinet->subCount
 	WsClientMap               *MySyncMap[string, *mybinanceapi.WsStreamClient]                     //symbol->wsClient
 	SubMap                    *MySyncMap[string, *mybinanceapi.Subscription[mybinanceapi.WsDepth]] //symbol->subscribe
 	IsInitActionMu            *MySyncMap[string, *sync.Mutex]                                      //symbol->mutex
@@ -57,18 +59,21 @@ func (b *BinanceOrderBook) getBaseMapFromAccountType(accountType BinanceAccountT
 // 新建币安深度基础
 func (b *BinanceOrderBook) newBinanceOrderBookBase(config BinanceOrderBookConfigBase) *binanceOrderBookBase {
 	return &binanceOrderBookBase{
-		Exchange:                  BINANCE,
+		Exchange: BINANCE,
+		BinanceWsClientBase: BinanceWsClientBase{
+			perConnSubNum:   config.PerConnSubNum,
+			WsClientListMap: GetPointer(NewMySyncMap[*mybinanceapi.WsStreamClient, *int64]()),
+		},
 		uSpeed:                    config.USpeed,
 		limitRestCountPerMinute:   config.LimitRestCountPerMinute,
-		perConnSubNum:             config.PerConnSubNum,
 		callBackDepthLevel:        config.CallBackDepthLevel,
 		callBackDepthTimeoutMilli: config.CallBackDepthTimeoutMilli,
+		initOrderBookSize:         config.InitOrderBookSize,
 		OrderBookCacheMap:         GetPointer(NewMySyncMap[string, *MySyncMap[int64, *mybinanceapi.WsDepth]]()),
 		OrderBookRBTreeMap:        GetPointer(NewMySyncMap[string, *OrderBook]()),
 		OrderBookReadyUpdateIdMap: GetPointer(NewMySyncMap[string, int64]()),
 		OrderBookMap:              GetPointer(NewMySyncMap[string, *Depth]()),
 		OrderBookLastUpdateIdMap:  GetPointer(NewMySyncMap[string, int64]()),
-		WsClientListMap:           GetPointer(NewMySyncMap[*mybinanceapi.WsStreamClient, int64]()),
 		WsClientMap:               GetPointer(NewMySyncMap[string, *mybinanceapi.WsStreamClient]()),
 		SubMap:                    GetPointer(NewMySyncMap[string, *mybinanceapi.Subscription[mybinanceapi.WsDepth]]()),
 		IsInitActionMu:            GetPointer(NewMySyncMap[string, *sync.Mutex]()),
@@ -79,24 +84,9 @@ func (b *BinanceOrderBook) newBinanceOrderBookBase(config BinanceOrderBookConfig
 
 // 初始化
 func (b *BinanceOrderBook) init() {
-	mybinanceapi.SetLogger(log)
 	c := cron.New(cron.WithSeconds())
-	refresh := func() {
-		b.SpotOrderBook.RefreshDelta()
-		b.FutureOrderBook.RefreshDelta()
-		b.SwapOrderBook.RefreshDelta()
-	}
-	refresh()
-
-	//每隔5秒读取一次服务器时间
-	_, err := c.AddFunc("*/5 * * * * *", refresh)
-	if err != nil {
-		log.Error(err)
-		return
-	}
-
 	//每隔1分钟刷新一次请求次数
-	_, err = c.AddFunc("0 */1 * * * *", func() {
+	_, err := c.AddFunc("0 */1 * * * *", func() {
 		atomic.StoreInt64(&b.SpotOrderBook.currentRestCount, 0)
 		atomic.StoreInt64(&b.FutureOrderBook.currentRestCount, 0)
 		atomic.StoreInt64(&b.SwapOrderBook.currentRestCount, 0)
@@ -108,112 +98,18 @@ func (b *BinanceOrderBook) init() {
 	c.Start()
 }
 
-// 获取当前服务器时间差
-func (b *BinanceOrderBook) GetServerTimeDelta(accountType BinanceAccountType) int64 {
-	switch accountType {
-	case BINANCE_SPOT:
-		return b.SpotOrderBook.serverTimeDelta
-	case BINANCE_FUTURE:
-		return b.FutureOrderBook.serverTimeDelta
-	case BINANCE_SWAP:
-		return b.SwapOrderBook.serverTimeDelta
-	}
-	return 0
-}
-
 // 获取当前或新建ws客户端
 func (b *BinanceOrderBook) GetCurrentOrNewWsClient(accountType BinanceAccountType) (*mybinanceapi.WsStreamClient, error) {
-	var WsClientListMap *MySyncMap[*mybinanceapi.WsStreamClient, int64]
-	perConnSubNum := int64(0)
 	switch accountType {
 	case BINANCE_SPOT:
-		WsClientListMap = b.SpotOrderBook.WsClientListMap
-		perConnSubNum = b.SpotOrderBook.perConnSubNum
+		return b.SpotOrderBook.GetCurrentOrNewWsClient(accountType)
 	case BINANCE_FUTURE:
-		WsClientListMap = b.FutureOrderBook.WsClientListMap
-		perConnSubNum = b.FutureOrderBook.perConnSubNum
+		return b.FutureOrderBook.GetCurrentOrNewWsClient(accountType)
 	case BINANCE_SWAP:
-		WsClientListMap = b.SwapOrderBook.WsClientListMap
-		perConnSubNum = b.SwapOrderBook.perConnSubNum
+		return b.SwapOrderBook.GetCurrentOrNewWsClient(accountType)
 	default:
 		return nil, ErrorAccountType
 	}
-
-	// log.Info(WsClientList)
-
-	var wsClient *mybinanceapi.WsStreamClient
-	var err error
-	WsClientListMap.Range(func(k *mybinanceapi.WsStreamClient, v int64) bool {
-		if v < perConnSubNum {
-			wsClient = k
-			return false
-		}
-		return true
-	})
-
-	if wsClient == nil {
-		//新建链接
-		switch accountType {
-		case BINANCE_SPOT:
-			wsClient = &binance.NewSpotWsStreamClient().WsStreamClient
-		case BINANCE_FUTURE:
-			wsClient = &binance.NewFutureWsStreamClient().WsStreamClient
-		case BINANCE_SWAP:
-			wsClient = &binance.NewSwapWsStreamClient().WsStreamClient
-		}
-		err = wsClient.OpenConn()
-		if err != nil {
-			return nil, err
-		}
-		WsClientListMap.Store(wsClient, 0)
-	}
-	return wsClient, nil
-}
-
-// 订阅深度
-func (b *BinanceOrderBook) SubscribeOrderBook(accountType BinanceAccountType, symbol string) error {
-	return b.SubscribeOrderBookWithCallBack(accountType, symbol, nil)
-}
-
-// 批量订阅深度
-func (b *BinanceOrderBook) SubscribeOrderBooks(accountType BinanceAccountType, symbols []string) error {
-	for _, symbol := range symbols {
-		err := b.SubscribeOrderBook(accountType, symbol)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// 订阅深度并带上回调
-func (b *BinanceOrderBook) SubscribeOrderBookWithCallBack(accountType BinanceAccountType, symbol string, callback func(depth *Depth, err error)) error {
-	client, err := b.GetCurrentOrNewWsClient(accountType)
-	if err != nil {
-		return err
-	}
-
-	switch accountType {
-	case BINANCE_SPOT:
-		err = b.SpotOrderBook.subscribeBinanceDepth(client, symbol, callback)
-	case BINANCE_FUTURE:
-		err = b.FutureOrderBook.subscribeBinanceDepth(client, symbol, callback)
-	case BINANCE_SWAP:
-		err = b.SwapOrderBook.subscribeBinanceDepth(client, symbol, callback)
-	}
-
-	return err
-}
-
-// 批量订阅深度并带上回调
-func (b *BinanceOrderBook) SubscribeOrderBooksWithCallBack(accountType BinanceAccountType, symbols []string, callback func(depth *Depth, err error)) error {
-	for _, symbol := range symbols {
-		err := b.SubscribeOrderBookWithCallBack(accountType, symbol, callback)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // 封装好的获取深度方法
@@ -248,25 +144,29 @@ func (b *BinanceOrderBook) GetDepth(BinanceAccountType BinanceAccountType, symbo
 }
 
 // 订阅币安深度底层执行
-func (b *binanceOrderBookBase) subscribeBinanceDepth(binanceWsClient *mybinanceapi.WsStreamClient, symbol string, callback func(depth *Depth, err error)) error {
+func (b *binanceOrderBookBase) subscribeBinanceDepthMultiple(binanceWsClient *mybinanceapi.WsStreamClient, symbols []string, callback func(depth *Depth, err error)) error {
 
-	binanceSub, err := binanceWsClient.SubscribeIncrementDepth(symbol, b.uSpeed)
+	binanceSub, err := binanceWsClient.SubscribeIncrementDepthMultiple(symbols, b.uSpeed)
 	if err != nil {
 		log.Error(err)
 		return err
 	}
-	b.WsClientMap.Store(symbol, binanceWsClient)
-	b.SubMap.Store(symbol, binanceSub)
-	b.CallBackMap.Store(symbol, callback)
-	//初始化深度锁
-	b.IsInitActionMu.Store(symbol, &sync.Mutex{})
-
+	for _, symbol := range symbols {
+		b.WsClientMap.Store(symbol, binanceWsClient)
+		b.SubMap.Store(symbol, binanceSub)
+		b.CallBackMap.Store(symbol, callback)
+		//初始化深度锁
+		b.IsInitActionMu.Store(symbol, &sync.Mutex{})
+	}
 	go func() {
 		for {
 			// log.Info("next binanceSub...")
 			select {
 			case err := <-binanceSub.ErrChan():
 				log.Error(err)
+				if callback != nil {
+					callback(nil, err)
+				}
 			case result := <-binanceSub.ResultChan():
 				Symbol := result.Symbol
 				//检测深度是否初始化
@@ -289,7 +189,12 @@ func (b *binanceOrderBookBase) subscribeBinanceDepth(binanceWsClient *mybinancea
 							b.OrderBookCacheMap.Delete(Symbol)
 							b.OrderBookRBTreeMap.Delete(Symbol)
 							//重新初始化深度
-							go b.initBinanceDepthFunc(result.Symbol)
+							go func() {
+								err := b.initBinanceDepthFunc(result.Symbol)
+								if err != nil {
+									log.Error(err)
+								}
+							}()
 							continue
 						} else if result.UpperU < lastLowerU+1 && result.LowerU >= lastLowerU+1 {
 							// log.Infof("首个正常数据包: %s:%s U:%d, u:%d lu:%d", result.AccountType, result.Symbol, result.UpperU, result.LowerU, lastLowerU)
@@ -340,48 +245,67 @@ func (b *binanceOrderBookBase) subscribeBinanceDepth(binanceWsClient *mybinancea
 		}
 	}()
 
-	//初始化深度池
-	err = b.initBinanceDepthFunc(symbol)
-	if err != nil {
+	log.Info("订阅成功, 开始初始化深度池...")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// 创建一个新的Group
+	g, ctx := errgroup.WithContext(ctx)
+	for _, symbol := range symbols {
+		symbol := symbol
+		g.Go(func() error {
+			//初始化深度池
+			err = b.initBinanceDepthFunc(symbol)
+			if err != nil {
+				log.Error(err)
+				return err
+			}
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
 		log.Error(err)
 		return err
 	}
-	// log.Infof("初始化币安深度成功: %s %s", b.AccountType, symbol)
+
+	currentCount := int64(len(symbols))
 	count, ok := b.WsClientListMap.Load(binanceWsClient)
 	if !ok {
-		b.WsClientListMap.Store(binanceWsClient, 1)
+		initCount := currentCount
+		b.WsClientListMap.Store(binanceWsClient, &initCount)
 	}
-	b.WsClientListMap.Store(binanceWsClient, count+1)
+	atomic.AddInt64(count, currentCount)
+
 	return nil
 }
 
-// 取消订阅币安深度
-func (b *binanceOrderBookBase) UnSubscribeBinanceDepth(Symbol string) error {
-	binanceSub, ok := b.SubMap.Load(Symbol)
-	if !ok {
-		return nil
-	}
-	return binanceSub.Unsubscribe()
-}
-
-// 重新订阅币安深度
-func (b *binanceOrderBookBase) ReSubscribeBinanceDepth(Symbol string) error {
-	err := b.UnSubscribeBinanceDepth(Symbol)
-	if err != nil {
-		return err
-	}
-	binanceWsClient, ok := b.WsClientMap.Load(Symbol)
-	if !ok {
-		err := fmt.Errorf("symbol:%s binanceWsClient not found", Symbol)
-		return err
-	}
-	callBack, ok := b.CallBackMap.Load(Symbol)
-	if !ok {
-		err := fmt.Errorf("symbol:%s callBack not found", Symbol)
-		return err
-	}
-	return b.subscribeBinanceDepth(binanceWsClient, Symbol, callBack)
-}
+//// 取消订阅币安深度
+//func (b *binanceOrderBookBase) UnSubscribeBinanceDepth(Symbol string) error {
+//	binanceSub, ok := b.SubMap.Load(Symbol)
+//	if !ok {
+//		return nil
+//	}
+//	return binanceSub.Unsubscribe()
+//}
+//
+//// 重新订阅币安深度
+//func (b *binanceOrderBookBase) ReSubscribeBinanceDepth(Symbol string) error {
+//	err := b.UnSubscribeBinanceDepth(Symbol)
+//	if err != nil {
+//		return err
+//	}
+//	binanceWsClient, ok := b.WsClientMap.Load(Symbol)
+//	if !ok {
+//		err := fmt.Errorf("symbol:%s binanceWsClient not found", Symbol)
+//		return err
+//	}
+//	callBack, ok := b.CallBackMap.Load(Symbol)
+//	if !ok {
+//		err := fmt.Errorf("symbol:%s callBack not found", Symbol)
+//		return err
+//	}
+//	return b.subscribeBinanceDepthMultiple(binanceWsClient, []string{Symbol}, callBack)
+//}
 
 // 初始化币安深度
 func (b *binanceOrderBookBase) initBinanceDepthFunc(symbol string) error {
@@ -430,7 +354,7 @@ func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
 	switch b.AccountType {
 	case BINANCE_SPOT:
 		//重新初始化
-		depth, err := binance.NewSpotRestClient("", "").NewSpotDepth().Symbol(Symbol).Limit(50).Do()
+		depth, err := binance.NewSpotRestClient("", "").NewSpotDepth().Symbol(Symbol).Limit(b.initOrderBookSize).Do()
 		if err != nil {
 			log.Error(err)
 			return err
@@ -601,28 +525,6 @@ func (b *binanceOrderBookBase) saveBinanceDepthCache(result mybinanceapi.WsDepth
 // 将Depth保存至OrderBook
 func (b *binanceOrderBookBase) saveBinanceDepthOrderBook(result mybinanceapi.WsDepth) error {
 	Symbol := result.Symbol
-	// if !unCheck {
-	// 	lastLowerU, ok := b.OrderBookLastUpdateIdMap.Load(Symbol)
-	// 	if ok {
-	// 		if b.AccountType != BINANCE_SPOT {
-	// 			if result.PreU != lastLowerU {
-	// 				err := fmt.Errorf("%s lastLowerU:%d,preU:%d", Symbol, lastLowerU, result.PreU)
-	// 				log.Error(err)
-	// 				return nil, err
-	// 			}
-	// 			log.Warnf("%s lastLowerU:%d,preU:%d", Symbol, lastLowerU, result.PreU)
-	// 		} else {
-	// 			if result.UpperU != lastLowerU+1 {
-	// 				err := fmt.Errorf("%s lastLowerU:%d,UpperU:%d", Symbol, lastLowerU, result.UpperU)
-	// 				log.Error(err)
-	// 				return nil, err
-	// 			}
-	// 			log.Warnf("%s lastLowerU:%d,UpperU:%d", Symbol, lastLowerU, result.UpperU)
-	// 		}
-
-	// 	}
-
-	// }
 
 	b.OrderBookLastUpdateIdMap.Store(Symbol, result.LowerU)
 
@@ -661,20 +563,82 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBook(result mybinanceapi.WsD
 		AccountType: string(b.AccountType),
 		Exchange:    string(b.Exchange),
 		Symbol:      result.Symbol,
-		Timestamp:   result.Timestamp + b.serverTimeDelta,
+		Timestamp:   result.Timestamp + b.parent.parent.GetServerTimeDelta(b.AccountType),
 	}
 	b.OrderBookMap.Store(Symbol, depth)
 
 	return nil
 }
 
-func (b *binanceOrderBookBase) RefreshDelta() {
-	switch b.AccountType {
+// 订阅深度
+func (b *BinanceOrderBook) SubscribeOrderBook(accountType BinanceAccountType, symbol string) error {
+	return b.SubscribeOrderBookWithCallBack(accountType, symbol, nil)
+}
+
+// 批量订阅深度
+func (b *BinanceOrderBook) SubscribeOrderBooks(accountType BinanceAccountType, symbols []string) error {
+	return b.SubscribeOrderBooksWithCallBack(accountType, symbols, nil)
+}
+
+// 订阅深度并带上回调
+func (b *BinanceOrderBook) SubscribeOrderBookWithCallBack(accountType BinanceAccountType, symbol string, callback func(depth *Depth, err error)) error {
+	return b.SubscribeOrderBooksWithCallBack(accountType, []string{symbol}, callback)
+}
+
+// 批量订阅深度并带上回调
+func (b *BinanceOrderBook) SubscribeOrderBooksWithCallBack(accountType BinanceAccountType, symbols []string, callback func(depth *Depth, err error)) error {
+	log.Infof("开始订阅增量OrderBook深度%s，交易对数:%d, 总订阅数:%d", accountType, len(symbols), len(symbols))
+
+	var currentBinanceOrderBookBase *binanceOrderBookBase
+
+	switch accountType {
 	case BINANCE_SPOT:
-		b.serverTimeDelta = b.parent.parent.spotServerTimeDelta
+		currentBinanceOrderBookBase = b.SpotOrderBook
 	case BINANCE_FUTURE:
-		b.serverTimeDelta = b.parent.parent.futureServerTimeDelta
+		currentBinanceOrderBookBase = b.FutureOrderBook
 	case BINANCE_SWAP:
-		b.serverTimeDelta = b.parent.parent.swapServerTimeDelta
+		currentBinanceOrderBookBase = b.SwapOrderBook
+	default:
+		return ErrorAccountType
 	}
+	//订阅总数超过LEN次，分批订阅
+	LEN := 50
+	if len(symbols) > LEN {
+		for i := 0; i < len(symbols); i += LEN {
+			end := i + LEN
+			if end > len(symbols) {
+				end = len(symbols)
+			}
+			tempSymbols := symbols[i:end]
+			client, err := b.GetCurrentOrNewWsClient(accountType)
+			if err != nil {
+				return err
+			}
+			err = currentBinanceOrderBookBase.subscribeBinanceDepthMultiple(client, tempSymbols, callback)
+			if err != nil {
+				return err
+			}
+			currentCount, ok := currentBinanceOrderBookBase.WsClientListMap.Load(client)
+			if !ok {
+				return errors.New("WsClientListMap Load error")
+			}
+			log.Infof("深度%s分批订阅成功，此次订阅交易对:%v, 总数:%d，当前链接总订阅数:%d, 等待1秒后继续订阅...", accountType, tempSymbols, len(tempSymbols), *currentCount)
+
+			time.Sleep(1000 * time.Millisecond)
+		}
+
+	} else {
+		client, err := b.GetCurrentOrNewWsClient(accountType)
+		if err != nil {
+			return err
+		}
+		err = currentBinanceOrderBookBase.subscribeBinanceDepthMultiple(client, symbols, callback)
+		if err != nil {
+			return err
+		}
+	}
+
+	log.Infof("增量OrderBook深度订阅结束，交易对数:%d,  总订阅数:%d", len(symbols), len(symbols))
+
+	return nil
 }

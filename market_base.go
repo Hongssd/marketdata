@@ -27,6 +27,7 @@ type BinanceMarketData struct {
 	*BinanceOrderBook
 	*BinanceKline
 	*BinanceDepth
+	*BinanceAggTrade
 }
 
 func NewBinanceMarketDataDefault() (*BinanceMarketData, error) {
@@ -75,7 +76,6 @@ func (bm *BinanceMarketData) InitBinanceKline(config BinanceKlineConfig) error {
 	b.SwapKline.parent = b
 	bm.BinanceKline = b
 	b.parent = bm
-	b.init()
 	return nil
 }
 
@@ -92,7 +92,22 @@ func (bm *BinanceMarketData) InitBinanceDepth(config BinanceDepthConfig) error {
 	b.SwapDepth.parent = b
 	bm.BinanceDepth = b
 	b.parent = bm
-	b.init()
+	return nil
+}
+
+func (bm *BinanceMarketData) InitBinanceAggTrade(config BinanceAggTradeConfig) error {
+	b := &BinanceAggTrade{}
+	b.SpotAggTrade = b.newBinanceAggTradeBase(config.SpotConfig)
+	b.SpotAggTrade.AccountType = BINANCE_SPOT
+	b.SpotAggTrade.parent = b
+	b.FutureAggTrade = b.newBinanceAggTradeBase(config.FutureConfig)
+	b.FutureAggTrade.AccountType = BINANCE_FUTURE
+	b.FutureAggTrade.parent = b
+	b.SwapAggTrade = b.newBinanceAggTradeBase(config.SwapConfig)
+	b.SwapAggTrade.AccountType = BINANCE_SWAP
+	b.SwapAggTrade.parent = b
+	bm.BinanceAggTrade = b
+	b.parent = bm
 	return nil
 }
 
@@ -137,6 +152,20 @@ func (bm *BinanceMarketData) init() error {
 	}
 	c.Start()
 	return nil
+}
+
+// 获取当前服务器时间差
+func (bm *BinanceMarketData) GetServerTimeDelta(accountType BinanceAccountType) int64 {
+	switch accountType {
+	case BINANCE_SPOT:
+		return bm.spotServerTimeDelta
+	case BINANCE_FUTURE:
+		return bm.futureServerTimeDelta
+	case BINANCE_SWAP:
+		return bm.swapServerTimeDelta
+	default:
+		return 0
+	}
 }
 
 type OkxMarketData struct {

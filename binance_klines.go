@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Hongssd/mybinanceapi"
-	"github.com/robfig/cron/v3"
 	"sync/atomic"
 	"time"
 )
@@ -17,16 +16,14 @@ type BinanceKline struct {
 }
 
 type binanceKlineBase struct {
-	serverTimeDelta int64
-	parent          *BinanceKline
-	perConnSubNum   int64
-	Exchange        Exchange
-	AccountType     BinanceAccountType
-	KlineMap        *MySyncMap[string, *Kline]                                           //symbol_interval->last kline
-	WsClientListMap *MySyncMap[*mybinanceapi.WsStreamClient, *int64]                     //ws client->subscribe count
-	WsClientMap     *MySyncMap[string, *mybinanceapi.WsStreamClient]                     //symbol_interval->ws client
-	SubMap          *MySyncMap[string, *mybinanceapi.Subscription[mybinanceapi.WsKline]] //symbol_interval->subscribe
-	CallBackMap     *MySyncMap[string, func(kline *Kline, err error)]                    //symbol_interval->callback
+	parent *BinanceKline
+	BinanceWsClientBase
+	Exchange    Exchange
+	AccountType BinanceAccountType
+	KlineMap    *MySyncMap[string, *Kline]                                           //symbol_interval->last kline
+	WsClientMap *MySyncMap[string, *mybinanceapi.WsStreamClient]                     //symbol_interval->ws client
+	SubMap      *MySyncMap[string, *mybinanceapi.Subscription[mybinanceapi.WsKline]] //symbol_interval->subscribe
+	CallBackMap *MySyncMap[string, func(kline *Kline, err error)]                    //symbol_interval->callback
 }
 
 func (b *BinanceKline) getBaseMapFromAccountType(accountType BinanceAccountType) (*binanceKlineBase, error) {
@@ -43,13 +40,15 @@ func (b *BinanceKline) getBaseMapFromAccountType(accountType BinanceAccountType)
 
 func (b *BinanceKline) newBinanceKlineBase(config BinanceKlineConfigBase) *binanceKlineBase {
 	return &binanceKlineBase{
-		Exchange:        BINANCE,
-		perConnSubNum:   config.PerConnSubNum,
-		KlineMap:        GetPointer(NewMySyncMap[string, *Kline]()),
-		WsClientListMap: GetPointer(NewMySyncMap[*mybinanceapi.WsStreamClient, *int64]()),
-		WsClientMap:     GetPointer(NewMySyncMap[string, *mybinanceapi.WsStreamClient]()),
-		SubMap:          GetPointer(NewMySyncMap[string, *mybinanceapi.Subscription[mybinanceapi.WsKline]]()),
-		CallBackMap:     GetPointer(NewMySyncMap[string, func(kline *Kline, err error)]()),
+		Exchange: BINANCE,
+		BinanceWsClientBase: BinanceWsClientBase{
+			perConnSubNum:   config.PerConnSubNum,
+			WsClientListMap: GetPointer(NewMySyncMap[*mybinanceapi.WsStreamClient, *int64]()),
+		},
+		KlineMap:    GetPointer(NewMySyncMap[string, *Kline]()),
+		WsClientMap: GetPointer(NewMySyncMap[string, *mybinanceapi.WsStreamClient]()),
+		SubMap:      GetPointer(NewMySyncMap[string, *mybinanceapi.Subscription[mybinanceapi.WsKline]]()),
+		CallBackMap: GetPointer(NewMySyncMap[string, func(kline *Kline, err error)]()),
 	}
 }
 
@@ -71,59 +70,18 @@ func (b *BinanceKline) GetLastKline(BinanceAccountType BinanceAccountType, symbo
 
 // 获取当前或新建ws客户端
 func (b *BinanceKline) GetCurrentOrNewWsClient(accountType BinanceAccountType) (*mybinanceapi.WsStreamClient, error) {
-	var WsClientListMap *MySyncMap[*mybinanceapi.WsStreamClient, *int64]
-	perConnSubNum := int64(0)
 	switch accountType {
 	case BINANCE_SPOT:
-		WsClientListMap = b.SpotKline.WsClientListMap
-		perConnSubNum = b.SpotKline.perConnSubNum
+		return b.SpotKline.GetCurrentOrNewWsClient(accountType)
 	case BINANCE_FUTURE:
-		WsClientListMap = b.FutureKline.WsClientListMap
-		perConnSubNum = b.FutureKline.perConnSubNum
+		return b.FutureKline.GetCurrentOrNewWsClient(accountType)
 	case BINANCE_SWAP:
-		WsClientListMap = b.SwapKline.WsClientListMap
-		perConnSubNum = b.SwapKline.perConnSubNum
+		return b.SwapKline.GetCurrentOrNewWsClient(accountType)
 	default:
 		return nil, ErrorAccountType
 	}
-
-	// log.Info(WsClientList)
-
-	var wsClient *mybinanceapi.WsStreamClient
-	var err error
-	WsClientListMap.Range(func(k *mybinanceapi.WsStreamClient, v *int64) bool {
-		if *v < perConnSubNum {
-			wsClient = k
-			return false
-		}
-
-		return true
-	})
-
-	if wsClient == nil {
-		//新建链接
-		switch accountType {
-		case BINANCE_SPOT:
-			wsClient = &binance.NewSpotWsStreamClient().WsStreamClient
-		case BINANCE_FUTURE:
-			wsClient = &binance.NewFutureWsStreamClient().WsStreamClient
-		case BINANCE_SWAP:
-			wsClient = &binance.NewSwapWsStreamClient().WsStreamClient
-		}
-		err = wsClient.OpenConn()
-		if err != nil {
-			return nil, err
-		}
-		initCount := int64(0)
-		WsClientListMap.Store(wsClient, &initCount)
-		if WsClientListMap.Length() > 1 {
-			log.Infof("当前链接订阅权重已用完，建立新的Ws链接，当前链接数:%d ...", WsClientListMap.Length())
-		} else {
-			log.Info("首次建立新的Ws链接...")
-		}
-	}
-	return wsClient, nil
 }
+
 func (b *binanceKlineBase) subscribeBinanceKline(binanceWsClient *mybinanceapi.WsStreamClient, symbol, interval string, callback func(kline *Kline, err error)) error {
 	return b.subscribeBinanceKlineMultiple(binanceWsClient, []string{symbol}, []string{interval}, callback)
 }
@@ -158,7 +116,7 @@ func (b *binanceKlineBase) subscribeBinanceKlineMultiple(binanceWsClient *mybina
 				symbolKey := result.Symbol + "_" + result.Interval
 				//保存至Kline
 				kline := &Kline{
-					Timestamp:            result.Timestamp + b.serverTimeDelta,
+					Timestamp:            result.Timestamp + b.parent.parent.GetServerTimeDelta(b.AccountType),
 					Exchange:             b.Exchange.String(),
 					AccountType:          b.AccountType.String(),
 					Symbol:               result.Symbol,
@@ -220,26 +178,12 @@ func (b *BinanceKline) SubscribeKlines(accountType BinanceAccountType, symbols, 
 
 // 订阅K线并带上回调
 func (b *BinanceKline) SubscribeKlineWithCallBack(accountType BinanceAccountType, symbol, interval string, callback func(kline *Kline, err error)) error {
-	client, err := b.GetCurrentOrNewWsClient(accountType)
-	if err != nil {
-		return err
-	}
-
-	switch accountType {
-	case BINANCE_SPOT:
-		err = b.SpotKline.subscribeBinanceKline(client, symbol, interval, callback)
-	case BINANCE_FUTURE:
-		err = b.FutureKline.subscribeBinanceKline(client, symbol, interval, callback)
-	case BINANCE_SWAP:
-		err = b.SwapKline.subscribeBinanceKline(client, symbol, interval, callback)
-	}
-
-	return err
+	return b.SubscribeKlinesWithCallBack(accountType, []string{symbol}, []string{interval}, callback)
 }
 
 // 批量订阅K线并带上回调
 func (b *BinanceKline) SubscribeKlinesWithCallBack(accountType BinanceAccountType, symbols, intervals []string, callback func(kline *Kline, err error)) error {
-	log.Infof("开始订阅%s，交易对数:%d, 周期数:%d, 总订阅数:%d", accountType, len(symbols), len(intervals), len(symbols)*len(intervals))
+	log.Infof("开始订阅K线%s，交易对数:%d, 周期数:%d, 总订阅数:%d", accountType, len(symbols), len(intervals), len(symbols)*len(intervals))
 
 	var currentBinanceKlineBase *binanceKlineBase
 
@@ -292,51 +236,7 @@ func (b *BinanceKline) SubscribeKlinesWithCallBack(accountType BinanceAccountTyp
 		}
 	}
 
-	log.Infof("订阅结束，交易对数:%d, 周期数:%d, 总订阅数:%d", len(symbols), len(intervals), len(symbols)*len(intervals))
+	log.Infof("K线订阅结束，交易对数:%d, 周期数:%d, 总订阅数:%d", len(symbols), len(intervals), len(symbols)*len(intervals))
 
 	return nil
-}
-
-// 获取当前服务器时间差
-func (b *BinanceKline) GetServerTimeDelta(accountType BinanceAccountType) int64 {
-	switch accountType {
-	case BINANCE_SPOT:
-		return b.SpotKline.serverTimeDelta
-	case BINANCE_FUTURE:
-		return b.FutureKline.serverTimeDelta
-	case BINANCE_SWAP:
-		return b.SwapKline.serverTimeDelta
-	}
-	return 0
-}
-
-// 初始化
-func (b *BinanceKline) init() {
-	mybinanceapi.SetLogger(log)
-	c := cron.New(cron.WithSeconds())
-	refresh := func() {
-		b.SpotKline.RefreshDelta()
-		b.FutureKline.RefreshDelta()
-		b.SwapKline.RefreshDelta()
-	}
-	refresh()
-
-	//每隔5秒更新一次服务器时间
-	_, err := c.AddFunc("*/5 * * * * *", refresh)
-	if err != nil {
-		log.Error(err)
-		return
-	}
-	c.Start()
-}
-
-func (b *binanceKlineBase) RefreshDelta() {
-	switch b.AccountType {
-	case BINANCE_SPOT:
-		b.serverTimeDelta = b.parent.parent.spotServerTimeDelta
-	case BINANCE_FUTURE:
-		b.serverTimeDelta = b.parent.parent.futureServerTimeDelta
-	case BINANCE_SWAP:
-		b.serverTimeDelta = b.parent.parent.swapServerTimeDelta
-	}
 }

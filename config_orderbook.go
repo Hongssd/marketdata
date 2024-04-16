@@ -14,6 +14,7 @@ type BinanceOrderBookConfigBase struct {
 	PerConnSubNum             int64  //每条链接订阅的数量
 	CallBackDepthLevel        int64  //回调深度档位
 	CallBackDepthTimeoutMilli int64  //超时毫秒数
+	InitOrderBookSize         int    //初始OrderBook档位
 }
 
 type OkxOrderBookConfig struct {
