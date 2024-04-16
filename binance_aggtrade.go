@@ -39,10 +39,17 @@ func (b *BinanceAggTrade) getBaseMapFromAccountType(accountType BinanceAccountTy
 }
 
 func (b *BinanceAggTrade) newBinanceAggTradeBase(config BinanceAggTradeConfigBase) *binanceAggTradeBase {
+	if config.PerSubMaxLen == 0 {
+		config.PerSubMaxLen = 50
+	}
+	if config.PerConnSubNum == 0 {
+		config.PerConnSubNum = 100
+	}
 	return &binanceAggTradeBase{
 		Exchange: BINANCE,
 		BinanceWsClientBase: BinanceWsClientBase{
 			perConnSubNum:   config.PerConnSubNum,
+			perSubMaxLen:    config.PerSubMaxLen,
 			WsClientListMap: GetPointer(NewMySyncMap[*mybinanceapi.WsStreamClient, *int64]()),
 		},
 		AggTradeMap: GetPointer(NewMySyncMap[string, *AggTrade]()),
@@ -138,7 +145,8 @@ func (b *binanceAggTradeBase) subscribeBinanceAggTradeMultiple(binanceWsClient *
 	currentCount := int64(len(symbols))
 	count, ok := b.WsClientListMap.Load(binanceWsClient)
 	if !ok {
-		initCount := currentCount
+		initCount := int64(0)
+		count = &initCount
 		b.WsClientListMap.Store(binanceWsClient, &initCount)
 	}
 	atomic.AddInt64(count, currentCount)
@@ -189,7 +197,7 @@ func (b *BinanceAggTrade) SubscribeAggTradesWithCallBack(accountType BinanceAcco
 	}
 
 	//订阅总数超过LEN次，分批订阅
-	LEN := 50
+	LEN := currentBinanceAggTradeBase.perSubMaxLen
 	if len(symbols) > LEN {
 		for i := 0; i < len(symbols); i += LEN {
 			end := i + LEN

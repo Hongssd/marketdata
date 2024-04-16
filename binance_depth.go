@@ -41,10 +41,17 @@ func (b *BinanceDepth) getBaseMapFromAccountType(accountType BinanceAccountType)
 }
 
 func (b *BinanceDepth) newBinanceDepthBase(config BinanceDepthConfigBase) *binanceDepthBase {
+	if config.PerSubMaxLen == 0 {
+		config.PerSubMaxLen = 50
+	}
+	if config.PerConnSubNum == 0 {
+		config.PerConnSubNum = 50
+	}
 	return &binanceDepthBase{
 		Exchange: BINANCE,
 		BinanceWsClientBase: BinanceWsClientBase{
 			perConnSubNum:   config.PerConnSubNum,
+			perSubMaxLen:    config.PerSubMaxLen,
 			WsClientListMap: GetPointer(NewMySyncMap[*mybinanceapi.WsStreamClient, *int64]()),
 		},
 		level:       config.Level,
@@ -149,7 +156,8 @@ func (b *binanceDepthBase) subscribeBinanceDepthMultiple(binanceWsClient *mybina
 	currentCount := int64(len(symbols))
 	count, ok := b.WsClientListMap.Load(binanceWsClient)
 	if !ok {
-		initCount := currentCount
+		initCount := int64(0)
+		count = &initCount
 		b.WsClientListMap.Store(binanceWsClient, &initCount)
 	}
 	atomic.AddInt64(count, currentCount)
@@ -200,7 +208,7 @@ func (b *BinanceDepth) SubscribeDepthsWithCallBack(accountType BinanceAccountTyp
 	}
 
 	//订阅总数超过LEN次，分批订阅
-	LEN := 50
+	LEN := currentBinanceDepthBase.perSubMaxLen
 	if len(symbols) > LEN {
 		for i := 0; i < len(symbols); i += LEN {
 			end := i + LEN

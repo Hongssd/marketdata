@@ -4,17 +4,15 @@ import "github.com/Hongssd/mybinanceapi"
 
 type BinanceWsClientBase struct {
 	perConnSubNum   int64
+	perSubMaxLen    int
 	WsClientListMap *MySyncMap[*mybinanceapi.WsStreamClient, *int64] //ws client->subscribe count
 }
 
-func (wcb *BinanceWsClientBase) GetCurrentOrNewWsClient(accountType BinanceAccountType) (*mybinanceapi.WsStreamClient, error) {
-	var WsClientListMap *MySyncMap[*mybinanceapi.WsStreamClient, *int64]
-	WsClientListMap = wcb.WsClientListMap
-	perConnSubNum := wcb.perConnSubNum
-
+func (b *BinanceWsClientBase) GetCurrentOrNewWsClient(accountType BinanceAccountType) (*mybinanceapi.WsStreamClient, error) {
+	perConnSubNum := b.perConnSubNum
 	var wsClient *mybinanceapi.WsStreamClient
 	var err error
-	WsClientListMap.Range(func(k *mybinanceapi.WsStreamClient, v *int64) bool {
+	b.WsClientListMap.Range(func(k *mybinanceapi.WsStreamClient, v *int64) bool {
 		if *v < perConnSubNum {
 			wsClient = k
 			return false
@@ -39,9 +37,9 @@ func (wcb *BinanceWsClientBase) GetCurrentOrNewWsClient(accountType BinanceAccou
 			return nil, err
 		}
 		initCount := int64(0)
-		WsClientListMap.Store(wsClient, &initCount)
-		if WsClientListMap.Length() > 1 {
-			log.Infof("当前链接订阅权重已用完，建立新的Ws链接，当前链接数:%d ...", WsClientListMap.Length())
+		b.WsClientListMap.Store(wsClient, &initCount)
+		if b.WsClientListMap.Length() > 1 {
+			log.Infof("当前链接订阅权重已用完，建立新的Ws链接，当前链接数:%d ...", b.WsClientListMap.Length())
 		} else {
 			log.Info("首次建立新的Ws链接...")
 		}

@@ -39,10 +39,17 @@ func (b *BinanceKline) getBaseMapFromAccountType(accountType BinanceAccountType)
 }
 
 func (b *BinanceKline) newBinanceKlineBase(config BinanceKlineConfigBase) *binanceKlineBase {
+	if config.PerSubMaxLen == 0 {
+		config.PerSubMaxLen = 100
+	}
+	if config.PerConnSubNum == 0 {
+		config.PerConnSubNum = 1000
+	}
 	return &binanceKlineBase{
 		Exchange: BINANCE,
 		BinanceWsClientBase: BinanceWsClientBase{
 			perConnSubNum:   config.PerConnSubNum,
+			perSubMaxLen:    config.PerSubMaxLen,
 			WsClientListMap: GetPointer(NewMySyncMap[*mybinanceapi.WsStreamClient, *int64]()),
 		},
 		KlineMap:    GetPointer(NewMySyncMap[string, *Kline]()),
@@ -148,7 +155,8 @@ func (b *binanceKlineBase) subscribeBinanceKlineMultiple(binanceWsClient *mybina
 	currentCount := int64(len(symbols) * len(intervals))
 	count, ok := b.WsClientListMap.Load(binanceWsClient)
 	if !ok {
-		initCount := currentCount
+		initCount := int64(0)
+		count = &initCount
 		b.WsClientListMap.Store(binanceWsClient, &initCount)
 	}
 	atomic.AddInt64(count, currentCount)
@@ -199,7 +207,7 @@ func (b *BinanceKline) SubscribeKlinesWithCallBack(accountType BinanceAccountTyp
 	}
 
 	//订阅总数超过LEN次，分批订阅
-	LEN := 100
+	LEN := currentBinanceKlineBase.perSubMaxLen
 	if len(symbols)*len(intervals) > LEN {
 		for i := 0; i < len(symbols); i += LEN / len(intervals) {
 			end := i + LEN/len(intervals)

@@ -1,20 +1,21 @@
 package marketdata
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Hongssd/myokxapi"
-	"github.com/robfig/cron/v3"
 	"github.com/shopspring/decimal"
 )
 
 type OkxOrderBook struct {
 	parent                    *OkxMarketData
-	serverTimeDelta           int64
 	perConnSubNum             int64
+	perSubMaxLen              int
 	wsBooksType               myokxapi.WsBooksType
 	callBackDepthLevel        int64
 	callBackDepthTimeoutMilli int64
@@ -23,26 +24,33 @@ type OkxOrderBook struct {
 	OrderBookReadyUpdateIdMap *MySyncMap[string, int64]
 	OrderBookMap              *MySyncMap[string, *Depth]
 	OrderBookLastUpdateIdMap  *MySyncMap[string, int64]
-	WsClientListMap           *MySyncMap[*myokxapi.PublicWsStreamClient, int64]
+	WsClientListMap           *MySyncMap[*myokxapi.PublicWsStreamClient, *int64]
 	WsClientMap               *MySyncMap[string, *myokxapi.PublicWsStreamClient]
 	SubMap                    *MySyncMap[string, *myokxapi.Subscription[myokxapi.WsBooks]]
 	CallBackMap               *MySyncMap[string, func(depth *Depth, err error)]
 }
 
 func (om *OkxMarketData) newOkxOrderBook(config OkxOrderBookConfig) *OkxOrderBook {
+	if config.PerConnSubNum == 0 {
+		config.PerConnSubNum = 10
+	}
+	if config.PerConnSubNum == 0 {
+		config.PerConnSubNum = 50
+	}
 	o := &OkxOrderBook{
 		parent:                    om,
-		serverTimeDelta:           0,
 		perConnSubNum:             config.PerConnSubNum,
+		perSubMaxLen:              config.PerSubMaxLen,
 		wsBooksType:               config.WsBooksType,
 		callBackDepthLevel:        config.CallBackDepthLevel,
 		callBackDepthTimeoutMilli: config.CallBackDepthTimeoutMilli,
+
 		Exchange:                  OKX,
 		OrderBookRBTreeMap:        GetPointer(NewMySyncMap[string, *OrderBook]()),
 		OrderBookReadyUpdateIdMap: GetPointer(NewMySyncMap[string, int64]()),
 		OrderBookMap:              GetPointer(NewMySyncMap[string, *Depth]()),
 		OrderBookLastUpdateIdMap:  GetPointer(NewMySyncMap[string, int64]()),
-		WsClientListMap:           GetPointer(NewMySyncMap[*myokxapi.PublicWsStreamClient, int64]()),
+		WsClientListMap:           GetPointer(NewMySyncMap[*myokxapi.PublicWsStreamClient, *int64]()),
 		WsClientMap:               GetPointer(NewMySyncMap[string, *myokxapi.PublicWsStreamClient]()),
 		SubMap:                    GetPointer(NewMySyncMap[string, *myokxapi.Subscription[myokxapi.WsBooks]]()),
 		CallBackMap:               GetPointer(NewMySyncMap[string, func(depth *Depth, err error)]()),
@@ -75,88 +83,56 @@ func (o *OkxOrderBook) GetDepth(symbol string, level int, timeoutMilli int64) (*
 	return newDepth, nil
 }
 
-func (o *OkxOrderBook) init() {
-
-	myokxapi.SetLogger(log)
-
-	c := cron.New(cron.WithSeconds())
-	refresh := func() {
-		err := o.RefreshDelta()
-		if err != nil {
-			log.Error(err)
-		}
-	}
-	refresh()
-
-	//每隔10秒更新一次服务器时间
-	_, err := c.AddFunc("*/10 * * * * *", refresh)
-	if err != nil {
-		log.Error(err)
-		return
-	}
-
-	c.Start()
-}
-
-func (o *OkxOrderBook) GetServerTimeDelta() int64 {
-	return o.serverTimeDelta
-}
-
 func (o *OkxOrderBook) GetCurrentOrNewWsClient() (*myokxapi.PublicWsStreamClient, error) {
+	return o.parent.GetPublicCurrentOrNewWsClient(o.perConnSubNum, o.WsClientListMap)
+}
+func (o *OkxOrderBook) SubscribeOrderBook(Symbol string) error {
+	return o.SubscribeOrderBookWithCallBack(Symbol, nil)
+}
+func (o *OkxOrderBook) SubscribeOrderBooks(symbols []string) error {
+	return o.SubscribeOrderBooksWithCallBack(symbols, nil)
+}
 
-	var wsClient *myokxapi.PublicWsStreamClient
-	var err error
-	o.WsClientListMap.Range(func(k *myokxapi.PublicWsStreamClient, v int64) bool {
-		if v < o.perConnSubNum {
-			wsClient = k
-			return false
+func (o *OkxOrderBook) SubscribeOrderBookWithCallBack(Symbol string, callback func(depth *Depth, err error)) error {
+	return o.SubscribeOrderBooksWithCallBack([]string{Symbol}, callback)
+}
+func (o *OkxOrderBook) SubscribeOrderBooksWithCallBack(symbols []string, callback func(depth *Depth, err error)) error {
+	log.Infof("OKX开始订阅增量OrderBook深度，交易对数:%d, 总订阅数:%d", len(symbols), len(symbols))
+	//订阅总数超过LEN次，分批订阅
+	LEN := o.perSubMaxLen
+	if len(symbols) > LEN {
+		for i := 0; i < len(symbols); i += LEN {
+			end := i + LEN
+			if end > len(symbols) {
+				end = len(symbols)
+			}
+			tempSymbols := symbols[i:end]
+			client, err := o.GetCurrentOrNewWsClient()
+			if err != nil {
+				return err
+			}
+			err = o.subscribeOkxDepthMultiple(client, tempSymbols, callback)
+			if err != nil {
+				return err
+			}
+			currentCount, ok := o.WsClientListMap.Load(client)
+			if !ok {
+				return errors.New("WsClientListMap Load error")
+			}
+			log.Infof("OrderBook深度分批订阅成功，此次订阅交易对:%v, 总数:%d，当前链接总订阅数:%d, 等待1秒后继续订阅...", tempSymbols, len(tempSymbols), *currentCount)
+			time.Sleep(1000 * time.Millisecond)
 		}
-		return true
-	})
-	if wsClient == nil {
-		//新建链接
-		wsClient = okx.NewPublicWsStreamClient()
-		err = wsClient.OpenConn()
+	} else {
+		client, err := o.GetCurrentOrNewWsClient()
 		if err != nil {
-			return nil, err
+			return err
 		}
-		err = wsClient.Login(okx.NewRestClient(o.parent.APIKey, o.parent.SecretKey, o.parent.Passphrase))
-		if err != nil {
-			log.Error(err)
-			return nil, err
-		}
-		log.Info("ws登录成功")
-		o.WsClientListMap.Store(wsClient, 0)
-	}
-	return wsClient, nil
-}
-func (o *OkxOrderBook) SubscribeDepth(Symbol string) error {
-	return o.SubscribeDepthWithCallBack(Symbol, nil)
-}
-func (o *OkxOrderBook) SubscribeDepthWithCallBack(Symbol string, callback func(depth *Depth, err error)) error {
-	client, err := o.GetCurrentOrNewWsClient()
-	if err != nil {
-		return err
-	}
-	return o.subscribeOkxDepth(client, Symbol, callback)
-}
-func (o *OkxOrderBook) SubscribeDepthsWithCallBack(symbols []string, callback func(depth *Depth, err error)) error {
-	for _, symbol := range symbols {
-		err := o.SubscribeDepthWithCallBack(symbol, callback)
+		err = o.subscribeOkxDepthMultiple(client, symbols, callback)
 		if err != nil {
 			return err
 		}
 	}
-	return nil
-}
 
-func (o *OkxOrderBook) SubscribeDepths(symbols []string) error {
-	for _, symbol := range symbols {
-		err := o.SubscribeDepth(symbol)
-		if err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -169,23 +145,31 @@ func (o *OkxOrderBook) DepthContractSizeToQuantity(depth *Depth, contractSize fl
 	}
 	return depth
 }
+func (o *OkxOrderBook) subscribeOkxDepth(okxWsClient *myokxapi.PublicWsStreamClient, symbol string, callback func(depth *Depth, err error)) error {
+	return o.subscribeOkxDepthMultiple(okxWsClient, []string{symbol}, callback)
+}
 
 // 订阅OKX深度
-func (o *OkxOrderBook) subscribeOkxDepth(okxWsClient *myokxapi.PublicWsStreamClient, Symbol string, callback func(depth *Depth, err error)) error {
+func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsStreamClient, symbols []string, callback func(depth *Depth, err error)) error {
 
-	okxSub, err := okxWsClient.SubscribeBooks(Symbol, o.wsBooksType)
+	okxSub, err := okxWsClient.SubscribeBooksMultiple(symbols, o.wsBooksType)
 	if err != nil {
 		log.Error(err)
 		return err
 	}
-	o.WsClientMap.Store(Symbol, okxWsClient)
-	o.SubMap.Store(Symbol, okxSub)
-	o.CallBackMap.Store(Symbol, callback)
+	for _, symbol := range symbols {
+		o.WsClientMap.Store(symbol, okxWsClient)
+		o.SubMap.Store(symbol, okxSub)
+		o.CallBackMap.Store(symbol, callback)
+	}
 	go func() {
 		for {
 			select {
 			case err := <-okxSub.ErrChan():
 				log.Error(err)
+				if callback != nil {
+					callback(nil, err)
+				}
 			case result := <-okxSub.ResultChan():
 				Symbol := result.InstId
 				switch result.Action {
@@ -195,8 +179,7 @@ func (o *OkxOrderBook) subscribeOkxDepth(okxWsClient *myokxapi.PublicWsStreamCli
 					o.OrderBookMap.Delete(Symbol)
 					o.OrderBookLastUpdateIdMap.Delete(Symbol)
 					o.OrderBookRBTreeMap.Delete(Symbol)
-
-					o.initOkxDepthFunc(result)
+					o.initOkxDepthOrderBook(result)
 				case "update":
 					//增量数据更新，需要进行校验
 					_, err := o.checkOkxDepthIsReady(Symbol)
@@ -241,11 +224,14 @@ func (o *OkxOrderBook) subscribeOkxDepth(okxWsClient *myokxapi.PublicWsStreamCli
 		}
 	}()
 
+	currentCount := int64(len(symbols))
 	count, ok := o.WsClientListMap.Load(okxWsClient)
 	if !ok {
-		o.WsClientListMap.Store(okxWsClient, 1)
+		initCount := int64(0)
+		count = &initCount
+		o.WsClientListMap.Store(okxWsClient, &initCount)
 	}
-	o.WsClientListMap.Store(okxWsClient, count+1)
+	atomic.AddInt64(count, currentCount)
 	return nil
 }
 
@@ -255,11 +241,38 @@ func (o *OkxOrderBook) UnSubscribeOkxDepth(Symbol string) error {
 	if !ok {
 		return nil
 	}
-	return okxSub.Unsubscribe()
+	thisSubAllSymbol := []string{}
+	for _, args := range okxSub.Args {
+		if args.InstId != Symbol {
+			thisSubAllSymbol = append(thisSubAllSymbol, args.InstId)
+		}
+	}
+	err := okxSub.Unsubscribe()
+	if err != nil {
+		return err
+	}
+	if len(thisSubAllSymbol) > 0 {
+		okxWsClient, ok := o.WsClientMap.Load(Symbol)
+		if !ok {
+			err := fmt.Errorf("symbol:%s okxWsClient not found", Symbol)
+			return err
+		}
+		callBack, ok := o.CallBackMap.Load(Symbol)
+		if !ok {
+			err := fmt.Errorf("symbol:%s callBack not found", Symbol)
+			return err
+		}
+		err := o.subscribeOkxDepthMultiple(okxWsClient, thisSubAllSymbol, callBack)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // 重新订阅OKX深度
 func (o *OkxOrderBook) ReSubscribeOkxDepth(Symbol string) error {
+	log.Info("重新订阅OKX深度: ", Symbol)
 	err := o.UnSubscribeOkxDepth(Symbol)
 	if err != nil {
 		return err
@@ -277,12 +290,11 @@ func (o *OkxOrderBook) ReSubscribeOkxDepth(Symbol string) error {
 	return o.subscribeOkxDepth(okxWsClient, Symbol, callBack)
 }
 
-func (o *OkxOrderBook) initOkxDepthFunc(result myokxapi.WsBooks) {
-	o.initOkxDepthOrderBook(result)
-}
+//func (o *OkxOrderBook) initOkxDepthFunc(result myokxapi.WsBooks) {
+//	o.initOkxDepthOrderBook(result)
+//}
 
 // 检测深度是否准备好
-
 func (o *OkxOrderBook) checkOkxDepthIsReady(Symbol string) (int64, error) {
 	readyId, isReady := o.OrderBookReadyUpdateIdMap.Load(Symbol)
 	if !isReady {
@@ -294,7 +306,7 @@ func (o *OkxOrderBook) checkOkxDepthIsReady(Symbol string) (int64, error) {
 
 func (o *OkxOrderBook) initOkxDepthOrderBook(result myokxapi.WsBooks) {
 	Symbol := result.InstId
-
+	//log.Infof("初始化深度池%s:", Symbol)
 	orderBook, ok := o.OrderBookRBTreeMap.Load(Symbol)
 	if !ok {
 		orderBook = NewOrderBook()
@@ -319,7 +331,6 @@ func (o *OkxOrderBook) initOkxDepthOrderBook(result myokxapi.WsBooks) {
 // 将Depth保存至OrderBook
 func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 	Symbol := result.InstId
-
 	lastSeqId, ok := o.OrderBookLastUpdateIdMap.Load(Symbol)
 	if ok {
 		if result.PrevSeqId != lastSeqId {
@@ -367,24 +378,11 @@ func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 
 	ts, _ := strconv.ParseInt(result.Ts, 10, 64)
 	depth := &Depth{
-		AccountType: result.InstType,
+		AccountType: okx_common.GetAccountTypeFromSymbol(result.InstId),
 		Exchange:    string(o.Exchange),
 		Symbol:      result.InstId,
-		Timestamp:   ts + o.serverTimeDelta,
+		Timestamp:   ts + o.parent.serverTimeDelta,
 	}
 	o.OrderBookMap.Store(Symbol, depth)
-	return nil
-}
-
-func (o *OkxOrderBook) RefreshDelta() error {
-	res, err := okx.NewRestClient("", "", "").PublicRestClient().NewPublicRestPublicTime().Do()
-	if err != nil {
-		return err
-	}
-	serverTime, err := strconv.ParseInt(res.Data[0].Ts, 10, 64)
-	if err != nil {
-		return err
-	}
-	o.serverTimeDelta = time.Now().UnixMilli() - serverTime
 	return nil
 }

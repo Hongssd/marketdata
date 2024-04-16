@@ -1,6 +1,10 @@
 package marketdata
 
-import "sync"
+import (
+	"strconv"
+	"sync"
+	"time"
+)
 
 type MySyncMap[K any, V any] struct {
 	smap sync.Map
@@ -53,4 +57,51 @@ func (m *MySyncMap[K, V]) MapValues(f func(k K, v V) V) *MySyncMap[K, V] {
 
 func GetPointer[T any](v T) *T {
 	return &v
+}
+
+func stringToFloat64(str string) float64 {
+	f, _ := strconv.ParseFloat(str, 64)
+	return f
+}
+
+func stringToInt64(str string) int64 {
+	i, _ := strconv.ParseInt(str, 10, 64)
+	return i
+}
+
+func BinanceGetServerTimeDelta(accountType BinanceAccountType) (int64, error) {
+	switch accountType {
+	case BINANCE_SPOT:
+		res, err := binance.NewSpotRestClient("", "").NewServerTime().Do()
+		if err != nil {
+			return 0, err
+		}
+		return time.Now().UnixMilli() - res.ServerTime, nil
+	case BINANCE_FUTURE:
+		res, err := binance.NewFutureRestClient("", "").NewServerTime().Do()
+		if err != nil {
+			return 0, err
+		}
+		return time.Now().UnixMilli() - res.ServerTime, nil
+	case BINANCE_SWAP:
+		res, err := binance.NewSwapRestClient("", "").NewServerTime().Do()
+		if err != nil {
+			return 0, err
+		}
+		return time.Now().UnixMilli() - res.ServerTime, nil
+	default:
+		return 0, ErrorAccountType
+	}
+}
+
+func OkxGetServerTimeDelta() (int64, error) {
+	res, err := okx.NewRestClient("", "", "").PublicRestClient().NewPublicRestPublicTime().Do()
+	if err != nil {
+		return 0, err
+	}
+	serverTime, err := strconv.ParseInt(res.Data[0].Ts, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return time.Now().UnixMilli() - serverTime, nil
 }

@@ -58,10 +58,17 @@ func (b *BinanceOrderBook) getBaseMapFromAccountType(accountType BinanceAccountT
 
 // 新建币安深度基础
 func (b *BinanceOrderBook) newBinanceOrderBookBase(config BinanceOrderBookConfigBase) *binanceOrderBookBase {
+	if config.PerSubMaxLen == 0 {
+		config.PerSubMaxLen = 10
+	}
+	if config.PerConnSubNum == 0 {
+		config.PerSubMaxLen = 50
+	}
 	return &binanceOrderBookBase{
 		Exchange: BINANCE,
 		BinanceWsClientBase: BinanceWsClientBase{
 			perConnSubNum:   config.PerConnSubNum,
+			perSubMaxLen:    config.PerSubMaxLen,
 			WsClientListMap: GetPointer(NewMySyncMap[*mybinanceapi.WsStreamClient, *int64]()),
 		},
 		uSpeed:                    config.USpeed,
@@ -271,8 +278,10 @@ func (b *binanceOrderBookBase) subscribeBinanceDepthMultiple(binanceWsClient *my
 	currentCount := int64(len(symbols))
 	count, ok := b.WsClientListMap.Load(binanceWsClient)
 	if !ok {
-		initCount := currentCount
+		initCount := int64(0)
+		count = &initCount
 		b.WsClientListMap.Store(binanceWsClient, &initCount)
+
 	}
 	atomic.AddInt64(count, currentCount)
 
@@ -602,7 +611,7 @@ func (b *BinanceOrderBook) SubscribeOrderBooksWithCallBack(accountType BinanceAc
 		return ErrorAccountType
 	}
 	//订阅总数超过LEN次，分批订阅
-	LEN := 50
+	LEN := currentBinanceOrderBookBase.perSubMaxLen
 	if len(symbols) > LEN {
 		for i := 0; i < len(symbols); i += LEN {
 			end := i + LEN
