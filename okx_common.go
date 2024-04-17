@@ -12,7 +12,6 @@ type okxCommon struct {
 var okx_common = (&okxCommon{}).initCommon()
 
 func (o *okxCommon) initCommon() *okxCommon {
-
 	o.InstIdToInstTypeMap = NewMySyncMap[string, string]()
 	o.refreshOkxExchangeInfo()
 	c := cron.New(cron.WithSeconds())
@@ -30,20 +29,35 @@ func (o *okxCommon) initCommon() *okxCommon {
 }
 
 func (o *okxCommon) refreshOkxExchangeInfo() {
-	spotExchangeInfo, _ := (&myokxapi.MyOkx{}).NewRestClient("", "", "").
+	spotExchangeInfo, err := (&myokxapi.MyOkx{}).NewRestClient("", "", "").
 		PublicRestClient().NewPublicRestPublicInstruments().InstType(OKX_SPOT.String()).Do()
+	if err != nil {
+		log.Error(err)
+		o.refreshOkxExchangeInfo()
+		return
+	}
 	for _, symbolInfo := range spotExchangeInfo.Data {
 		o.InstIdToInstTypeMap.Store(symbolInfo.InstId, OKX_SPOT.String())
 	}
 
-	futureExchangeInfo, _ := (&myokxapi.MyOkx{}).NewRestClient("", "", "").
+	futureExchangeInfo, err := (&myokxapi.MyOkx{}).NewRestClient("", "", "").
 		PublicRestClient().NewPublicRestPublicInstruments().InstType(OKX_FUTURE.String()).Do()
+	if err != nil {
+		log.Error(err)
+		o.refreshOkxExchangeInfo()
+		return
+	}
 	for _, symbolInfo := range futureExchangeInfo.Data {
 		o.InstIdToInstTypeMap.Store(symbolInfo.InstId, OKX_FUTURE.String())
 	}
 
-	swapExchangeInfo, _ := (&myokxapi.MyOkx{}).NewRestClient("", "", "").
+	swapExchangeInfo, err := (&myokxapi.MyOkx{}).NewRestClient("", "", "").
 		PublicRestClient().NewPublicRestPublicInstruments().InstType(OKX_SWAP.String()).Do()
+	if err != nil {
+		log.Error(err)
+		o.refreshOkxExchangeInfo()
+		return
+	}
 	for _, symbolInfo := range swapExchangeInfo.Data {
 		o.InstIdToInstTypeMap.Store(symbolInfo.InstId, OKX_SWAP.String())
 	}
