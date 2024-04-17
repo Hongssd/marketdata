@@ -185,28 +185,15 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 					_, err := o.checkOkxDepthIsReady(Symbol)
 					if err != nil {
 						//首次全量数据丢失，直接重新订阅
-						go func() {
-							err := o.ReSubscribeOkxDepth(Symbol)
-							for err != nil {
-								log.Error(err)
-								time.Sleep(1000 * time.Millisecond)
-								err = o.ReSubscribeOkxDepth(Symbol)
-							}
-						}()
+
 						continue
 					}
 
 					err = o.saveOkxDepthOrderBook(result)
 					if err != nil {
+						log.Error(err)
 						//保存增量数据失败，直接重新订阅
-						go func() {
-							err := o.ReSubscribeOkxDepth(Symbol)
-							for err != nil {
-								log.Error(err)
-								time.Sleep(1000 * time.Millisecond)
-								err = o.ReSubscribeOkxDepth(Symbol)
-							}
-						}()
+
 						continue
 					}
 
@@ -234,65 +221,6 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 	atomic.AddInt64(count, currentCount)
 	return nil
 }
-
-// 取消订阅OKX深度
-func (o *OkxOrderBook) UnSubscribeOkxDepth(Symbol string) error {
-	okxSub, ok := o.SubMap.Load(Symbol)
-	if !ok {
-		return nil
-	}
-	thisSubAllSymbol := []string{}
-	for _, args := range okxSub.Args {
-		if args.InstId != Symbol {
-			thisSubAllSymbol = append(thisSubAllSymbol, args.InstId)
-		}
-	}
-	err := okxSub.Unsubscribe()
-	if err != nil {
-		return err
-	}
-	if len(thisSubAllSymbol) > 0 {
-		okxWsClient, ok := o.WsClientMap.Load(Symbol)
-		if !ok {
-			err := fmt.Errorf("symbol:%s okxWsClient not found", Symbol)
-			return err
-		}
-		callBack, ok := o.CallBackMap.Load(Symbol)
-		if !ok {
-			err := fmt.Errorf("symbol:%s callBack not found", Symbol)
-			return err
-		}
-		err := o.subscribeOkxDepthMultiple(okxWsClient, thisSubAllSymbol, callBack)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// 重新订阅OKX深度
-func (o *OkxOrderBook) ReSubscribeOkxDepth(Symbol string) error {
-	log.Info("重新订阅OKX深度: ", Symbol)
-	err := o.UnSubscribeOkxDepth(Symbol)
-	if err != nil {
-		return err
-	}
-	okxWsClient, ok := o.WsClientMap.Load(Symbol)
-	if !ok {
-		err := fmt.Errorf("symbol:%s okxWsClient not found", Symbol)
-		return err
-	}
-	callBack, ok := o.CallBackMap.Load(Symbol)
-	if !ok {
-		err := fmt.Errorf("symbol:%s callBack not found", Symbol)
-		return err
-	}
-	return o.subscribeOkxDepth(okxWsClient, Symbol, callBack)
-}
-
-//func (o *OkxOrderBook) initOkxDepthFunc(result myokxapi.WsBooks) {
-//	o.initOkxDepthOrderBook(result)
-//}
 
 // 检测深度是否准备好
 func (o *OkxOrderBook) checkOkxDepthIsReady(Symbol string) (int64, error) {

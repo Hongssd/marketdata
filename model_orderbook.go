@@ -1,7 +1,6 @@
 package marketdata
 
 import (
-	"fmt"
 	"sync"
 
 	rbt "github.com/emirpasic/gods/trees/redblacktree"
@@ -47,10 +46,12 @@ func (ob OrderBook) RemoveAsk(price float64) {
 }
 
 func (ob OrderBook) LoadToDepth(depth *Depth, level int) (*Depth, error) {
-	if level > ob.Bids.Size() || level > ob.Asks.Size() {
-		err := fmt.Errorf("level %d is larger than orderbook size", level)
-		return nil, err
-	}
+	//if level > ob.Bids.Size() || level > ob.Asks.Size() {
+	//	//err := fmt.Errorf("[%s][%s][%s]level %d is larger than orderbook size", depth.Exchange, depth.AccountType, depth.Symbol, level)
+	//	//return nil, err
+	//	//log.Infof("[%s][%s][%s]level %d is larger than orderbook size", depth.Exchange, depth.AccountType, depth.Symbol, level)
+	//}
+
 	newDepth := &Depth{
 		Exchange:    depth.Exchange,
 		AccountType: depth.AccountType,
@@ -83,5 +84,6 @@ func (ob OrderBook) LoadToDepth(depth *Depth, level int) (*Depth, error) {
 	wg.Wait()
 	newDepth.Bids = bids
 	newDepth.Asks = asks
+	//log.Info(len(newDepth.Bids), len(newDepth.Asks))
 	return newDepth, nil
 }
