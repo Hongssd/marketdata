@@ -162,6 +162,19 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 		o.SubMap.Store(symbol, okxSub)
 		o.CallBackMap.Store(symbol, callback)
 	}
+
+	reSubThis := func() {
+		err := okxSub.Unsubscribe()
+		if err != nil {
+			log.Error(err)
+			return
+		}
+		err = o.subscribeOkxDepthMultiple(okxWsClient, symbols, callback)
+		if err != nil {
+			log.Error(err)
+			return
+		}
+	}
 	go func() {
 		for {
 			select {
@@ -185,7 +198,7 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 					_, err := o.checkOkxDepthIsReady(Symbol)
 					if err != nil {
 						//首次全量数据丢失，直接重新订阅
-
+						go reSubThis()
 						continue
 					}
 
@@ -193,7 +206,7 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 					if err != nil {
 						log.Error(err)
 						//保存增量数据失败，直接重新订阅
-
+						go reSubThis()
 						continue
 					}
 

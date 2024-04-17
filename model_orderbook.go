@@ -45,6 +45,11 @@ func (ob OrderBook) RemoveAsk(price float64) {
 	ob.Asks.Remove(price)
 }
 
+func (ob OrderBook) ClearAll() {
+	ob.Bids.Clear()
+	ob.Asks.Clear()
+}
+
 func (ob OrderBook) LoadToDepth(depth *Depth, level int) (*Depth, error) {
 	//if level > ob.Bids.Size() || level > ob.Asks.Size() {
 	//	//err := fmt.Errorf("[%s][%s][%s]level %d is larger than orderbook size", depth.Exchange, depth.AccountType, depth.Symbol, level)
