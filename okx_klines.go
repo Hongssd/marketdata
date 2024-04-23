@@ -144,11 +144,18 @@ func (o *OkxKline) subscribeOkxKlineMultiple(okxWsClient *myokxapi.BusinessWsStr
 				if result.Confirm == "1" {
 					confirm = true
 				}
+				accountType := okx_common.GetAccountTypeFromSymbol(result.InstId)
+				volume := 0.0
+				if accountType == "SPOT" {
+					volume = stringToFloat64(result.Vol)
+				} else {
+					volume = stringToFloat64(result.VolCcy)
+				}
 				//保存至Kline
 				kline := &Kline{
 					Timestamp:            ts,
 					Exchange:             o.Exchange.String(),
-					AccountType:          okx_common.GetAccountTypeFromSymbol(result.InstId),
+					AccountType:          accountType,
 					Symbol:               result.InstId,
 					Interval:             result.Interval,
 					StartTime:            stringToInt64(result.Ts),
@@ -156,7 +163,7 @@ func (o *OkxKline) subscribeOkxKlineMultiple(okxWsClient *myokxapi.BusinessWsStr
 					High:                 stringToFloat64(result.H),
 					Low:                  stringToFloat64(result.L),
 					Close:                stringToFloat64(result.C),
-					Volume:               stringToFloat64(result.VolCcy),
+					Volume:               volume,
 					CloseTime:            stringToInt64(result.Ts) + OkxInterval(result.Interval).Millisecond() - 1,
 					TransactionVolume:    stringToFloat64(result.VolCcyQuote),
 					TransactionNumber:    0,
