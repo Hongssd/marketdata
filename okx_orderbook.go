@@ -163,13 +163,35 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 		o.CallBackMap.Store(symbol, callback)
 	}
 
-	reSubThis := func() {
-		err := okxSub.Unsubscribe()
+	//重新订阅
+	reSubThis := func(symbol string) {
+		err := okxWsClient.UnSubscribeBooks(symbol, o.wsBooksType)
 		if err != nil {
 			log.Error(err)
 			return
 		}
-		err = o.subscribeOkxDepthMultiple(okxWsClient, symbols, callback)
+		o.WsClientMap.Delete(symbol)
+		o.SubMap.Delete(symbol)
+		o.CallBackMap.Delete(symbol)
+		if count, ok := o.WsClientListMap.Load(okxWsClient); ok {
+			atomic.AddInt64(count, -1)
+		}
+		//判断上层sub对应的symbol是否为空，如果为空则关闭上层sub
+		hasSub := false
+		o.SubMap.Range(func(k string, v *myokxapi.Subscription[myokxapi.WsBooks]) bool {
+			if v == okxSub {
+				hasSub = true
+				return false
+			}
+			return true
+		})
+
+		if !hasSub {
+			log.Info("上层订阅已关闭: ", okxSub.Args)
+			okxSub.CloseChan() <- struct{}{}
+		}
+
+		err = o.subscribeOkxDepthMultiple(okxWsClient, []string{symbol}, callback)
 		if err != nil {
 			log.Error(err)
 			return
@@ -198,7 +220,7 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 					_, err := o.checkOkxDepthIsReady(Symbol)
 					if err != nil {
 						//首次全量数据丢失，直接重新订阅
-						go reSubThis()
+						go reSubThis(Symbol)
 						continue
 					}
 
@@ -206,7 +228,7 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 					if err != nil {
 						log.Error(err)
 						//保存增量数据失败，直接重新订阅
-						go reSubThis()
+						go reSubThis(Symbol)
 						continue
 					}
 

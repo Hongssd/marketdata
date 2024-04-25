@@ -4,7 +4,7 @@ go 1.19
 
 require (
 	github.com/Hongssd/mybinanceapi v1.3.1
-	github.com/Hongssd/myokxapi v0.2.8
+	github.com/Hongssd/myokxapi v0.2.9
 	github.com/emirpasic/gods v1.18.1
 	github.com/json-iterator/go v1.1.12
 	github.com/robfig/cron/v3 v3.0.1

@@ -63,8 +63,8 @@ func (om *OkxMarketData) init() error {
 	}
 	refresh()
 
-	//每隔10秒更新一次服务器时间
-	_, err := c.AddFunc("*/10 * * * * *", refresh)
+	//每隔15秒更新一次服务器时间
+	_, err := c.AddFunc("*/15 * * * * *", refresh)
 	if err != nil {
 		log.Error(err)
 		return err
