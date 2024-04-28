@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,6 +29,7 @@ type OkxOrderBook struct {
 	WsClientMap               *MySyncMap[string, *myokxapi.PublicWsStreamClient]
 	SubMap                    *MySyncMap[string, *myokxapi.Subscription[myokxapi.WsBooks]]
 	CallBackMap               *MySyncMap[string, func(depth *Depth, err error)]
+	ReSubMuMap                *MySyncMap[string, *sync.Mutex]
 }
 
 func (om *OkxMarketData) newOkxOrderBook(config OkxOrderBookConfig) *OkxOrderBook {
@@ -54,6 +56,7 @@ func (om *OkxMarketData) newOkxOrderBook(config OkxOrderBookConfig) *OkxOrderBoo
 		WsClientMap:               GetPointer(NewMySyncMap[string, *myokxapi.PublicWsStreamClient]()),
 		SubMap:                    GetPointer(NewMySyncMap[string, *myokxapi.Subscription[myokxapi.WsBooks]]()),
 		CallBackMap:               GetPointer(NewMySyncMap[string, func(depth *Depth, err error)]()),
+		ReSubMuMap:                GetPointer(NewMySyncMap[string, *sync.Mutex]()),
 	}
 	return o
 }
@@ -161,11 +164,29 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 		o.WsClientMap.Store(symbol, okxWsClient)
 		o.SubMap.Store(symbol, okxSub)
 		o.CallBackMap.Store(symbol, callback)
+		if _, ok := o.ReSubMuMap.Load(symbol); !ok {
+			o.ReSubMuMap.Store(symbol, &sync.Mutex{})
+		}
 	}
 
 	//重新订阅
 	reSubThis := func(symbol string) {
+		if mu, ok := o.ReSubMuMap.Load(symbol); ok {
+			if mu.TryLock() {
+				defer mu.Unlock()
+			} else {
+				log.Info("resubscribe symbol:", symbol, " mutex is locked")
+				return
+			}
+		} else {
+			log.Error("resubscribe symbol:", symbol, " mutex not found")
+			return
+		}
 		err := okxWsClient.UnSubscribeBooks(symbol, o.wsBooksType)
+		for err != nil && strings.Contains(err.Error(), "websocket is busy") {
+			time.Sleep(1000 * time.Millisecond)
+			err = okxWsClient.UnSubscribeBooks(symbol, o.wsBooksType)
+		}
 		if err != nil {
 			log.Error(err)
 			return
