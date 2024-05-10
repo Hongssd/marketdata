@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Hongssd/mybinanceapi"
+	"strconv"
 	"sync/atomic"
 	"time"
 )
@@ -119,7 +120,7 @@ func (b *binanceAggTradeBase) subscribeBinanceAggTradeMultiple(binanceWsClient *
 
 				//保存至AggTrade
 				aggTrade := &AggTrade{
-					AId:         result.AId,
+					AId:         strconv.FormatInt(result.AId, 10),
 					Exchange:    b.Exchange.String(),
 					AccountType: b.AccountType.String(),
 					Symbol:      result.Symbol,

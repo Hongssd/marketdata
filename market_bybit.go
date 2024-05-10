@@ -1,0 +1,105 @@
+package marketdata
+
+import (
+	"github.com/Hongssd/mybybitapi"
+	"github.com/robfig/cron/v3"
+)
+
+type BybitMarketData struct {
+	mybybitapi.Client
+	ServerTimeDelta int64
+	*BybitKline
+	*BybitOrderBook
+	*BybitAggTrade
+}
+
+func (bm *BybitMarketData) init() error {
+	c := cron.New(cron.WithSeconds())
+	refresh := func() {
+		serverTimeDelta, err := BybitGetServerTimeDelta()
+		if err != nil {
+			log.Error(err)
+		}
+		bm.ServerTimeDelta = serverTimeDelta
+	}
+	refresh()
+
+	//每隔15秒更新一次服务器时间
+	_, err := c.AddFunc("*/15 * * * * *", refresh)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	c.Start()
+	return nil
+}
+
+func NewBybitMarketDataDefault() (*BybitMarketData, error) {
+	return NewBybitMarketData("", "")
+}
+func NewBybitMarketData(apiKey, apiSecrey string) (*BybitMarketData, error) {
+	marketData := &BybitMarketData{
+		Client: mybybitapi.Client{
+			APIKey:    apiKey,
+			SecretKey: apiSecrey,
+		},
+	}
+	err := marketData.init()
+	if err != nil {
+		return nil, err
+	}
+	return marketData, nil
+}
+
+func (bm *BybitMarketData) InitBybitKline(config BybitKlineConfig) error {
+	b := &BybitKline{}
+	b.SpotKline = b.newBybitKlineBase(config.SpotConfig)
+	b.SpotKline.AccountType = BYBIT_SPOT
+	b.SpotKline.parent = b
+	b.LinearKline = b.newBybitKlineBase(config.LinearConfig)
+	b.LinearKline.AccountType = BYBIT_LINEAR
+	b.LinearKline.parent = b
+	b.InverseKline = b.newBybitKlineBase(config.InverseConfig)
+	b.InverseKline.AccountType = BYBIT_INVERSE
+	b.InverseKline.parent = b
+	bm.BybitKline = b
+	b.parent = bm
+	return nil
+}
+func (bm *BybitMarketData) InitBybitOrderBook(config BybitOrderBookConfig) error {
+	b := &BybitOrderBook{}
+	b.SpotOrderBook = b.newBybitOrderBookBase(config.SpotConfig)
+	b.SpotOrderBook.AccountType = BYBIT_SPOT
+	b.SpotOrderBook.parent = b
+	b.LinearOrderBook = b.newBybitOrderBookBase(config.LinearConfig)
+	b.LinearOrderBook.AccountType = BYBIT_LINEAR
+	b.LinearOrderBook.parent = b
+	b.InverseOrderBook = b.newBybitOrderBookBase(config.InverseConfig)
+	b.InverseOrderBook.AccountType = BYBIT_INVERSE
+	b.InverseOrderBook.parent = b
+	b.init()
+	bm.BybitOrderBook = b
+	b.parent = bm
+	return nil
+}
+
+func (bm *BybitMarketData) InitBybitAggTrade(config BybitAggTradeConfig) error {
+	b := &BybitAggTrade{}
+	b.SpotAggTrade = b.newBybitAggTradeBase(config.SpotConfig)
+	b.SpotAggTrade.AccountType = BYBIT_SPOT
+	b.SpotAggTrade.parent = b
+	b.LinearAggTrade = b.newBybitAggTradeBase(config.LinearConfig)
+	b.LinearAggTrade.AccountType = BYBIT_LINEAR
+	b.LinearAggTrade.parent = b
+	b.InverseAggTrade = b.newBybitAggTradeBase(config.InverseConfig)
+	b.InverseAggTrade.AccountType = BYBIT_INVERSE
+	b.InverseAggTrade.parent = b
+	bm.BybitAggTrade = b
+	b.parent = bm
+	return nil
+}
+
+// 获取当前服务器时间差
+func (bm *BybitMarketData) GetServerTimeDelta() int64 {
+	return bm.ServerTimeDelta
+}

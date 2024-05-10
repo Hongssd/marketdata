@@ -9,6 +9,7 @@ type Exchange string
 const (
 	BINANCE Exchange = "BINANCE"
 	OKX     Exchange = "OKX"
+	BYBIT   Exchange = "BYBIT"
 )
 
 func (e Exchange) String() string {
@@ -37,6 +38,19 @@ const (
 
 func (oat OkxAccountType) String() string {
 	return string(oat)
+}
+
+type BybitAccountType string
+
+const (
+	BYBIT_SPOT    BybitAccountType = "spot"
+	BYBIT_LINEAR  BybitAccountType = "linear"
+	BYBIT_INVERSE BybitAccountType = "inverse"
+	BYBIT_OPTION  BybitAccountType = "option"
+)
+
+func (bat BybitAccountType) String() string {
+	return string(bat)
 }
 
 type BinanceInterval string
@@ -163,7 +177,57 @@ func initOkxIntervalMillisecondMap() {
 	OkxIntervalMillisecondMap.Store(OKX_INTERVAL_3Mutc.String(), 3*30*24*60*60*1000)
 }
 
+type BybitInterval string
+
+const (
+	//1 3 5 15 30 (分鐘)
+	//60 120 240 360 720 (分鐘)
+	//D (天)
+	//W (週)
+	//M (月)
+	BYBIT_INTERVAL_1   BybitInterval = "1"
+	BYBIT_INTERVAL_3   BybitInterval = "3"
+	BYBIT_INTERVAL_5   BybitInterval = "5"
+	BYBIT_INTERVAL_15  BybitInterval = "15"
+	BYBIT_INTERVAL_30  BybitInterval = "30"
+	BYBIT_INTERVAL_60  BybitInterval = "60"
+	BYBIT_INTERVAL_120 BybitInterval = "120"
+	BYBIT_INTERVAL_240 BybitInterval = "240"
+	BYBIT_INTERVAL_360 BybitInterval = "360"
+	BYBIT_INTERVAL_720 BybitInterval = "720"
+	BYBIT_INTERVAL_D   BybitInterval = "D"
+	BYBIT_INTERVAL_W   BybitInterval = "W"
+	BYBIT_INTERVAL_M   BybitInterval = "M"
+)
+
+func (i BybitInterval) String() string {
+	return string(i)
+}
+func (i BybitInterval) Millisecond() int64 {
+	m, _ := BinanceIntervalMillisecondMap.Load(i.String())
+	return m
+}
+
+var BybitIntervalMillisecondMap = NewMySyncMap[string, int64]()
+
+func initBybitIntervalMillisecondMap() {
+	BybitIntervalMillisecondMap.Store(BYBIT_INTERVAL_1.String(), 60*1000)
+	BybitIntervalMillisecondMap.Store(BYBIT_INTERVAL_3.String(), 3*60*1000)
+	BybitIntervalMillisecondMap.Store(BYBIT_INTERVAL_5.String(), 5*60*1000)
+	BybitIntervalMillisecondMap.Store(BYBIT_INTERVAL_15.String(), 15*60*1000)
+	BybitIntervalMillisecondMap.Store(BYBIT_INTERVAL_30.String(), 30*60*1000)
+	BybitIntervalMillisecondMap.Store(BYBIT_INTERVAL_60.String(), 60*60*1000)
+	BybitIntervalMillisecondMap.Store(BYBIT_INTERVAL_120.String(), 120*60*1000)
+	BybitIntervalMillisecondMap.Store(BYBIT_INTERVAL_240.String(), 240*60*1000)
+	BybitIntervalMillisecondMap.Store(BYBIT_INTERVAL_360.String(), 360*60*1000)
+	BybitIntervalMillisecondMap.Store(BYBIT_INTERVAL_720.String(), 720*60*1000)
+	BybitIntervalMillisecondMap.Store(BYBIT_INTERVAL_D.String(), 24*60*60*1000)
+	BybitIntervalMillisecondMap.Store(BYBIT_INTERVAL_W.String(), 7*24*60*60*1000)
+	BybitIntervalMillisecondMap.Store(BYBIT_INTERVAL_M.String(), 30*24*60*60*1000)
+}
+
 func init() {
 	initBinanceIntervalMillisecondMap()
 	initOkxIntervalMillisecondMap()
+	initBybitIntervalMillisecondMap()
 }

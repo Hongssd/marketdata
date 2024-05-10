@@ -139,7 +139,7 @@ func (o *OkxAggTrade) subscribeOkxAggTradeMultiple(okxWsClient *myokxapi.PublicW
 				}
 				//保存至AggTrade
 				aggTrade := &AggTrade{
-					AId:         stringToInt64(result.TradeId),
+					AId:         result.TradeId,
 					Exchange:    o.Exchange.String(),
 					AccountType: okx_common.GetAccountTypeFromSymbol(result.Trades.InstId),
 					Symbol:      result.Trades.InstId,

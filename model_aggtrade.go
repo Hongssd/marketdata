@@ -1,7 +1,7 @@
 package marketdata
 
 type AggTrade struct {
-	AId         int64   `json:"a_id" bson:"a_id"`                // 归集交易ID
+	AId         string  `json:"a_id" bson:"a_id"`                // 归集交易ID
 	AccountType string  `json:"accountType" bson:"account_type"` //类型 现货:spot 币合约:swap u合约:future
 	Exchange    string  `json:"exchange" bson:"exchange"`        //交易所
 	Symbol      string  `json:"symbol" bson:"symbol"`            //交易对

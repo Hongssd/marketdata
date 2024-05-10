@@ -1,6 +1,7 @@
 package marketdata
 
 import (
+	"github.com/Hongssd/mybybitapi"
 	"strconv"
 	"sync"
 	"time"
@@ -103,5 +104,19 @@ func OkxGetServerTimeDelta() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	return time.Now().UnixMilli() - serverTime, nil
+}
+
+func BybitGetServerTimeDelta() (int64, error) {
+	res, err := mybybitapi.NewRestClient("", "").PublicRestClient().NewMarketTime().Do()
+	if err != nil {
+		return 0, err
+	}
+	serverTimeNano, err := strconv.ParseInt(res.Result.TimeNano, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	serverTime := serverTimeNano / 1e6
 	return time.Now().UnixMilli() - serverTime, nil
 }
