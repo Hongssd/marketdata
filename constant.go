@@ -144,7 +144,7 @@ func (i OkxInterval) String() string {
 	return string(i)
 }
 func (i OkxInterval) Millisecond() int64 {
-	m, _ := BinanceIntervalMillisecondMap.Load(i.String())
+	m, _ := OkxIntervalMillisecondMap.Load(i.String())
 	return m
 }
 
@@ -204,7 +204,7 @@ func (i BybitInterval) String() string {
 	return string(i)
 }
 func (i BybitInterval) Millisecond() int64 {
-	m, _ := BinanceIntervalMillisecondMap.Load(i.String())
+	m, _ := BybitIntervalMillisecondMap.Load(i.String())
 	return m
 }
 
