@@ -139,7 +139,6 @@ func (o *OkxKline) subscribeOkxKlineMultiple(okxWsClient *myokxapi.BusinessWsStr
 				Interval := result.Interval
 				symbolKey := Symbol + "_" + Interval
 
-				ts := time.Now().UnixMilli()
 				confirm := false
 				if result.Confirm == "1" {
 					confirm = true
@@ -153,7 +152,7 @@ func (o *OkxKline) subscribeOkxKlineMultiple(okxWsClient *myokxapi.BusinessWsStr
 				}
 				//保存至Kline
 				kline := &Kline{
-					Timestamp:            ts,
+					Timestamp:            time.Now().UnixMilli(),
 					Exchange:             o.Exchange.String(),
 					AccountType:          accountType,
 					Symbol:               result.InstId,

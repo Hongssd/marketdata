@@ -129,7 +129,7 @@ func (b *bybitKlineBase) subscribeBybitKlineMultiple(bybitWsClient *mybybitapi.P
 				symbolKey := symbol + "_" + result.Interval
 				//保存至Kline
 				kline := &Kline{
-					Timestamp:            result.Timestamp + b.parent.parent.GetServerTimeDelta(),
+					Timestamp:            result.Ts + b.parent.parent.GetServerTimeDelta(),
 					Exchange:             b.Exchange.String(),
 					AccountType:          b.AccountType.String(),
 					Symbol:               symbol,
