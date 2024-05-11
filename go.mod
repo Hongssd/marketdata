@@ -13,7 +13,7 @@ require (
 )
 
 require (
-	github.com/Hongssd/mybybitapi v0.0.6 // indirect
+	github.com/Hongssd/mybybitapi v0.0.7 // indirect
 	github.com/bwmarrin/snowflake v0.3.0 // indirect
 	github.com/gorilla/websocket v1.5.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
