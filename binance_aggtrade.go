@@ -239,3 +239,19 @@ func (b *BinanceAggTrade) SubscribeAggTradesWithCallBack(accountType BinanceAcco
 
 	return nil
 }
+
+func (b *binanceAggTradeBase) Close() {
+	b.BinanceWsClientBase.close()
+
+	b.AggTradeMap.Clear()
+	b.WsClientMap.Clear()
+	b.SubMap.Clear()
+	b.CallBackMap.Clear()
+
+}
+
+func (b *BinanceAggTrade) Close() {
+	b.SpotAggTrade.Close()
+	b.FutureAggTrade.Close()
+	b.SwapAggTrade.Close()
+}

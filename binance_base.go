@@ -46,3 +46,15 @@ func (b *BinanceWsClientBase) GetCurrentOrNewWsClient(accountType BinanceAccount
 	}
 	return wsClient, nil
 }
+
+func (b *BinanceWsClientBase) close() {
+	b.WsClientListMap.Range(func(k *mybinanceapi.WsStreamClient, v *int64) bool {
+		err := k.Close()
+		if err != nil {
+			log.Error(err)
+		}
+		return true
+	})
+
+	b.WsClientListMap.Clear()
+}

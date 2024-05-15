@@ -248,3 +248,20 @@ func (b *BinanceKline) SubscribeKlinesWithCallBack(accountType BinanceAccountTyp
 
 	return nil
 }
+
+func (b *binanceKlineBase) Close() {
+
+	b.BinanceWsClientBase.close()
+
+	b.KlineMap.Clear()
+	b.WsClientMap.Clear()
+	b.SubMap.Clear()
+	b.CallBackMap.Clear()
+
+}
+
+func (b *BinanceKline) Close() {
+	b.SpotKline.Close()
+	b.FutureKline.Close()
+	b.SwapKline.Close()
+}

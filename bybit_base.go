@@ -48,3 +48,14 @@ func (b *BybitWsClientBase) GetCurrentOrNewWsClient(accountType BybitAccountType
 	}
 	return wsClient, nil
 }
+
+func (b *BybitWsClientBase) close() {
+	b.WsClientListMap.Range(func(k *mybybitapi.PublicWsStreamClient, v *int64) bool {
+		err := k.Close()
+		if err != nil {
+			log.Error(err)
+		}
+		return true
+	})
+	b.WsClientListMap.Clear()
+}

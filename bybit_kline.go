@@ -254,3 +254,19 @@ func (b *BybitKline) SubscribeKlinesWithCallBack(accountType BybitAccountType, s
 
 	return nil
 }
+
+func (b *bybitKlineBase) Close() {
+	b.BybitWsClientBase.close()
+
+	b.KlineMap.Clear()
+	b.WsClientMap.Clear()
+	b.SubMap.Clear()
+	b.CallBackMap.Clear()
+
+}
+
+func (b *BybitKline) Close() {
+	b.SpotKline.Close()
+	b.LinearKline.Close()
+	b.InverseKline.Close()
+}

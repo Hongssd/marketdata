@@ -47,6 +47,13 @@ func (m *MySyncMap[K, V]) Length() int {
 	return length
 }
 
+func (m *MySyncMap[K, V]) Clear() {
+	m.smap.Range(func(k, v any) bool {
+		m.smap.Delete(k)
+		return true
+	})
+}
+
 func (m *MySyncMap[K, V]) MapValues(f func(k K, v V) V) *MySyncMap[K, V] {
 	var res = NewMySyncMap[K, V]()
 	m.Range(func(k K, v V) bool {

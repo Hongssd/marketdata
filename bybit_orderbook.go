@@ -417,3 +417,24 @@ func (b *BybitOrderBook) SubscribeOrderBooksWithCallBack(accountType BybitAccoun
 
 	return nil
 }
+
+func (b *bybitOrderBookBase) Close() {
+	b.BybitWsClientBase.close()
+
+	b.OrderBookRBTreeMap.Clear()
+	b.OrderBookReadyUpdateIdMap.Clear()
+	b.OrderBookMap.Clear()
+	b.OrderBookLastUpdateIdMap.Clear()
+	b.WsClientMap.Clear()
+	b.SubMap.Clear()
+	b.IsInitActionMu.Clear()
+	b.CallBackMap.Clear()
+	b.ReSubMuMap.Clear()
+
+}
+
+func (b *BybitOrderBook) Close() {
+	b.SpotOrderBook.Close()
+	b.LinearOrderBook.Close()
+	b.InverseOrderBook.Close()
+}

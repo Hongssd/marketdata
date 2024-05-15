@@ -252,3 +252,19 @@ func (b *BybitAggTrade) SubscribeAggTradesWithCallBack(accountType BybitAccountT
 
 	return nil
 }
+
+func (b *bybitAggTradeBase) Close() {
+	b.BybitWsClientBase.close()
+
+	b.AggTradeMap.Clear()
+	b.WsClientMap.Clear()
+	b.SubMap.Clear()
+	b.CallBackMap.Clear()
+
+}
+
+func (b *BybitAggTrade) Close() {
+	b.SpotAggTrade.Close()
+	b.LinearAggTrade.Close()
+	b.InverseAggTrade.Close()
+}

@@ -651,3 +651,24 @@ func (b *BinanceOrderBook) SubscribeOrderBooksWithCallBack(accountType BinanceAc
 
 	return nil
 }
+
+func (b *binanceOrderBookBase) Close() {
+	b.BinanceWsClientBase.close()
+
+	b.OrderBookCacheMap.Clear()
+	b.OrderBookRBTreeMap.Clear()
+	b.OrderBookReadyUpdateIdMap.Clear()
+	b.OrderBookMap.Clear()
+	b.OrderBookLastUpdateIdMap.Clear()
+	b.WsClientMap.Clear()
+	b.SubMap.Clear()
+	b.IsInitActionMu.Clear()
+	b.CallBackMap.Clear()
+
+}
+
+func (b *BinanceOrderBook) Close() {
+	b.SpotOrderBook.Close()
+	b.FutureOrderBook.Close()
+	b.SwapOrderBook.Close()
+}

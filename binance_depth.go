@@ -249,3 +249,19 @@ func (b *BinanceDepth) SubscribeDepthsWithCallBack(accountType BinanceAccountTyp
 
 	return nil
 }
+
+func (b *binanceDepthBase) Close() {
+	b.BinanceWsClientBase.close()
+
+	b.DepthMap.Clear()
+	b.WsClientMap.Clear()
+	b.SubMap.Clear()
+	b.CallBackMap.Clear()
+
+}
+
+func (b *BinanceDepth) Close() {
+	b.SpotDepth.Close()
+	b.FutureDepth.Close()
+	b.SwapDepth.Close()
+}

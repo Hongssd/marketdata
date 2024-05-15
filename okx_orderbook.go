@@ -370,3 +370,22 @@ func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 	o.OrderBookMap.Store(Symbol, depth)
 	return nil
 }
+
+func (o *OkxOrderBook) Close() {
+	o.WsClientListMap.Range(func(k *myokxapi.PublicWsStreamClient, v *int64) bool {
+		err := k.Close()
+		if err != nil {
+			log.Error(err)
+		}
+		return true
+	})
+	o.OrderBookRBTreeMap.Clear()
+	o.OrderBookReadyUpdateIdMap.Clear()
+	o.OrderBookMap.Clear()
+	o.OrderBookLastUpdateIdMap.Clear()
+	o.WsClientListMap.Clear()
+	o.WsClientMap.Clear()
+	o.SubMap.Clear()
+	o.CallBackMap.Clear()
+	o.ReSubMuMap.Clear()
+}

@@ -170,3 +170,18 @@ func (o *OkxAggTrade) subscribeOkxAggTradeMultiple(okxWsClient *myokxapi.PublicW
 	atomic.AddInt64(count, currentCount)
 	return nil
 }
+
+func (o *OkxAggTrade) Close() {
+	o.WsClientListMap.Range(func(k *myokxapi.PublicWsStreamClient, v *int64) bool {
+		err := k.Close()
+		if err != nil {
+			log.Error(err)
+		}
+		return true
+	})
+
+	o.WsClientListMap.Clear()
+	o.WsClientMap.Clear()
+	o.SubMap.Clear()
+	o.CallBackMap.Clear()
+}
