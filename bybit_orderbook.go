@@ -37,6 +37,7 @@ type bybitOrderBookBase struct {
 	IsInitActionMu            *MySyncMap[string, *sync.Mutex]                                  //symbol->mutex
 	CallBackMap               *MySyncMap[string, func(depth *Depth, err error)]                //symbol->callback
 	ReSubMuMap                *MySyncMap[string, *sync.Mutex]
+	ReSubWsClientMuMap        *MySyncMap[*mybybitapi.PublicWsStreamClient, *sync.Mutex]
 }
 
 // 根据类型获取基础
@@ -79,6 +80,7 @@ func (b *BybitOrderBook) newBybitOrderBookBase(config BybitOrderBookConfigBase) 
 		IsInitActionMu:            GetPointer(NewMySyncMap[string, *sync.Mutex]()),
 		CallBackMap:               GetPointer(NewMySyncMap[string, func(depth *Depth, err error)]()),
 		ReSubMuMap:                GetPointer(NewMySyncMap[string, *sync.Mutex]()),
+		ReSubWsClientMuMap:        GetPointer(NewMySyncMap[*mybybitapi.PublicWsStreamClient, *sync.Mutex]()),
 	}
 
 }
@@ -90,16 +92,39 @@ func (b *BybitOrderBook) init() {
 
 // 获取当前或新建ws客户端
 func (b *BybitOrderBook) GetCurrentOrNewWsClient(accountType BybitAccountType) (*mybybitapi.PublicWsStreamClient, error) {
+	var wsClient *mybybitapi.PublicWsStreamClient
+	var err error
 	switch accountType {
 	case BYBIT_SPOT:
-		return b.SpotOrderBook.GetCurrentOrNewWsClient(accountType)
+		wsClient, err = b.SpotOrderBook.GetCurrentOrNewWsClient(accountType)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := b.SpotOrderBook.ReSubWsClientMuMap.Load(wsClient); !ok {
+			b.SpotOrderBook.ReSubWsClientMuMap.Store(wsClient, &sync.Mutex{})
+		}
 	case BYBIT_LINEAR:
-		return b.LinearOrderBook.GetCurrentOrNewWsClient(accountType)
+		wsClient, err = b.LinearOrderBook.GetCurrentOrNewWsClient(accountType)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := b.LinearOrderBook.ReSubWsClientMuMap.Load(wsClient); !ok {
+			b.LinearOrderBook.ReSubWsClientMuMap.Store(wsClient, &sync.Mutex{})
+		}
 	case BYBIT_INVERSE:
-		return b.InverseOrderBook.GetCurrentOrNewWsClient(accountType)
+		wsClient, err = b.InverseOrderBook.GetCurrentOrNewWsClient(accountType)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := b.InverseOrderBook.ReSubWsClientMuMap.Load(wsClient); !ok {
+			b.InverseOrderBook.ReSubWsClientMuMap.Store(wsClient, &sync.Mutex{})
+		}
 	default:
 		return nil, ErrorAccountType
 	}
+
+	return wsClient, err
+
 }
 
 // 封装好的获取深度方法
@@ -153,6 +178,13 @@ func (b *bybitOrderBookBase) subscribeBybitDepthMultiple(bybitWsClient *mybybita
 	}
 	//重新订阅
 	reSubThis := func(symbol string) {
+		if mu, ok := b.ReSubWsClientMuMap.Load(bybitWsClient); ok {
+			mu.Lock()
+			defer mu.Unlock()
+		} else {
+			log.Error("resubscribe wsClient mutex not found")
+			return
+		}
 		if mu, ok := b.ReSubMuMap.Load(symbol); ok {
 			if mu.TryLock() {
 				defer mu.Unlock()
@@ -430,6 +462,7 @@ func (b *bybitOrderBookBase) Close() {
 	b.IsInitActionMu.Clear()
 	b.CallBackMap.Clear()
 	b.ReSubMuMap.Clear()
+	b.ReSubWsClientMuMap.Clear()
 
 }
 

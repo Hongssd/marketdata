@@ -40,6 +40,7 @@ func (b *BybitWsClientBase) GetCurrentOrNewWsClient(accountType BybitAccountType
 		}
 		initCount := int64(0)
 		b.WsClientListMap.Store(wsClient, &initCount)
+
 		if b.WsClientListMap.Length() > 1 {
 			log.Infof("当前链接订阅权重已用完，建立新的Ws链接，当前链接数:%d ...", b.WsClientListMap.Length())
 		} else {
