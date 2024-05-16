@@ -30,6 +30,7 @@ type OkxOrderBook struct {
 	SubMap                    *MySyncMap[string, *myokxapi.Subscription[myokxapi.WsBooks]]
 	CallBackMap               *MySyncMap[string, func(depth *Depth, err error)]
 	ReSubMuMap                *MySyncMap[string, *sync.Mutex]
+	ReSubWsClientMap          *MySyncMap[*myokxapi.PublicWsStreamClient, *sync.Mutex]
 }
 
 func (om *OkxMarketData) newOkxOrderBook(config OkxOrderBookConfig) *OkxOrderBook {
@@ -57,6 +58,7 @@ func (om *OkxMarketData) newOkxOrderBook(config OkxOrderBookConfig) *OkxOrderBoo
 		SubMap:                    GetPointer(NewMySyncMap[string, *myokxapi.Subscription[myokxapi.WsBooks]]()),
 		CallBackMap:               GetPointer(NewMySyncMap[string, func(depth *Depth, err error)]()),
 		ReSubMuMap:                GetPointer(NewMySyncMap[string, *sync.Mutex]()),
+		ReSubWsClientMap:          GetPointer(NewMySyncMap[*myokxapi.PublicWsStreamClient, *sync.Mutex]()),
 	}
 	return o
 }
@@ -155,6 +157,9 @@ func (o *OkxOrderBook) subscribeOkxDepth(okxWsClient *myokxapi.PublicWsStreamCli
 // 订阅OKX深度
 func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsStreamClient, symbols []string, callback func(depth *Depth, err error)) error {
 
+	if _, ok := o.ReSubWsClientMap.Load(okxWsClient); !ok {
+		o.ReSubWsClientMap.Store(okxWsClient, &sync.Mutex{})
+	}
 	okxSub, err := okxWsClient.SubscribeBooksMultiple(symbols, o.wsBooksType)
 	if err != nil {
 		log.Error(err)
@@ -171,15 +176,22 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 
 	//重新订阅
 	reSubThis := func(symbol string) {
+		if mu, ok := o.ReSubWsClientMap.Load(okxWsClient); ok {
+			mu.Lock()
+			defer mu.Unlock()
+		} else {
+			//log.Error("resubscribe wsclient mutex not found")
+			return
+		}
 		if mu, ok := o.ReSubMuMap.Load(symbol); ok {
 			if mu.TryLock() {
 				defer mu.Unlock()
 			} else {
-				log.Info("resubscribe symbol:", symbol, " mutex is locked")
+				//log.Info("resubscribe symbol:", symbol, " mutex is locked")
 				return
 			}
 		} else {
-			log.Error("resubscribe symbol:", symbol, " mutex not found")
+			//log.Error("resubscribe symbol:", symbol, " mutex not found")
 			return
 		}
 		err := okxWsClient.UnSubscribeBooks(symbol, o.wsBooksType)

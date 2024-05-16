@@ -92,39 +92,16 @@ func (b *BybitOrderBook) init() {
 
 // 获取当前或新建ws客户端
 func (b *BybitOrderBook) GetCurrentOrNewWsClient(accountType BybitAccountType) (*mybybitapi.PublicWsStreamClient, error) {
-	var wsClient *mybybitapi.PublicWsStreamClient
-	var err error
 	switch accountType {
 	case BYBIT_SPOT:
-		wsClient, err = b.SpotOrderBook.GetCurrentOrNewWsClient(accountType)
-		if err != nil {
-			return nil, err
-		}
-		if _, ok := b.SpotOrderBook.ReSubWsClientMuMap.Load(wsClient); !ok {
-			b.SpotOrderBook.ReSubWsClientMuMap.Store(wsClient, &sync.Mutex{})
-		}
+		return b.SpotOrderBook.GetCurrentOrNewWsClient(accountType)
 	case BYBIT_LINEAR:
-		wsClient, err = b.LinearOrderBook.GetCurrentOrNewWsClient(accountType)
-		if err != nil {
-			return nil, err
-		}
-		if _, ok := b.LinearOrderBook.ReSubWsClientMuMap.Load(wsClient); !ok {
-			b.LinearOrderBook.ReSubWsClientMuMap.Store(wsClient, &sync.Mutex{})
-		}
+		return b.LinearOrderBook.GetCurrentOrNewWsClient(accountType)
 	case BYBIT_INVERSE:
-		wsClient, err = b.InverseOrderBook.GetCurrentOrNewWsClient(accountType)
-		if err != nil {
-			return nil, err
-		}
-		if _, ok := b.InverseOrderBook.ReSubWsClientMuMap.Load(wsClient); !ok {
-			b.InverseOrderBook.ReSubWsClientMuMap.Store(wsClient, &sync.Mutex{})
-		}
+		return b.InverseOrderBook.GetCurrentOrNewWsClient(accountType)
 	default:
 		return nil, ErrorAccountType
 	}
-
-	return wsClient, err
-
 }
 
 // 封装好的获取深度方法
@@ -161,6 +138,10 @@ func (b *BybitOrderBook) GetDepth(BybitAccountType BybitAccountType, symbol stri
 // 订阅Bybit深度底层执行
 func (b *bybitOrderBookBase) subscribeBybitDepthMultiple(bybitWsClient *mybybitapi.PublicWsStreamClient, symbols []string, callback func(depth *Depth, err error)) error {
 
+	if _, ok := b.ReSubWsClientMuMap.Load(bybitWsClient); !ok {
+		b.ReSubWsClientMuMap.Store(bybitWsClient, &sync.Mutex{})
+	}
+
 	bybitSub, err := bybitWsClient.SubscribeDepthMultiple(symbols, b.level)
 	if err != nil {
 		log.Error(err)
@@ -182,23 +163,23 @@ func (b *bybitOrderBookBase) subscribeBybitDepthMultiple(bybitWsClient *mybybita
 			mu.Lock()
 			defer mu.Unlock()
 		} else {
-			log.Error("resubscribe wsClient mutex not found")
+			//log.Error("resubscribe wsClient mutex not found")
 			return
 		}
 		if mu, ok := b.ReSubMuMap.Load(symbol); ok {
 			if mu.TryLock() {
 				defer mu.Unlock()
 			} else {
-				log.Info("resubscribe symbol:", symbol, " mutex is locked")
+				//log.Info("resubscribe symbol:", symbol, " mutex is locked")
 				return
 			}
 		} else {
-			log.Error("resubscribe symbol:", symbol, " mutex not found")
+			//log.Error("resubscribe symbol:", symbol, " mutex not found")
 			return
 		}
 		err := bybitWsClient.UnSubscribeDepth(symbol, b.level)
 		for err != nil && strings.Contains(err.Error(), "websocket is busy") {
-			time.Sleep(1000 * time.Millisecond)
+			time.Sleep(5000 * time.Millisecond)
 			err = bybitWsClient.UnSubscribeDepth(symbol, b.level)
 		}
 		if err != nil {
