@@ -242,12 +242,7 @@ func (b *binanceOrderBookBase) subscribeBinanceDepthMultiple(binanceWsClient *my
 					log.Error(err)
 					continue
 				}
-				UId := int64(0)
-				if result.LastUpdateID != 0 {
-					UId = result.LastUpdateID
-				} else if result.LowerU != 0 {
-					UId = result.LowerU
-				}
+
 				if callback == nil || b.callBackDepthLevel == 0 {
 					continue
 				}
@@ -256,7 +251,7 @@ func (b *binanceOrderBookBase) subscribeBinanceDepthMultiple(binanceWsClient *my
 					callback(nil, err)
 					continue
 				}
-				depth.UId = UId
+				depth.UId, depth.PreUId = b.GetUidAndPreUid(result)
 				callback(depth, err)
 			case <-binanceSub.CloseChan():
 				log.Info("订阅已关闭: ", binanceSub.Params)
@@ -582,14 +577,11 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBook(result mybinanceapi.WsD
 	}()
 	wg.Wait()
 	//log.Warn(result.LowerU, result.UpperU, result.LastUpdateID)
-	UId := int64(0)
-	if result.LastUpdateID != 0 {
-		UId = result.LastUpdateID
-	} else if result.LowerU != 0 {
-		UId = result.LowerU
-	}
+
+	UId, PreUId := b.GetUidAndPreUid(result)
 	depth := &Depth{
 		UId:         UId,
+		PreUId:      PreUId,
 		AccountType: string(b.AccountType),
 		Exchange:    string(b.Exchange),
 		Symbol:      result.Symbol,
@@ -598,6 +590,24 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBook(result mybinanceapi.WsD
 	b.OrderBookMap.Store(Symbol, depth)
 
 	return nil
+}
+
+func (b *binanceOrderBookBase) GetUidAndPreUid(result mybinanceapi.WsDepth) (int64, int64) {
+	UId := int64(0)
+	if result.LastUpdateID != 0 {
+		UId = result.LastUpdateID
+	} else if result.LowerU != 0 {
+		UId = result.LowerU
+	}
+
+	PreUId := int64(0)
+
+	PreUId = result.PreU
+
+	if PreUId == 0 {
+		PreUId = result.UpperU - 1
+	}
+	return UId, PreUId
 }
 
 // 订阅深度

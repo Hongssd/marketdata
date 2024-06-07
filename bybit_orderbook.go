@@ -260,6 +260,7 @@ func (b *bybitOrderBookBase) subscribeBybitDepthMultiple(bybitWsClient *mybybita
 						continue
 					}
 					depth.UId = result.U
+					depth.PreUId = result.U - 1
 					callback(depth, err)
 				}
 			case <-bybitSub.CloseChan():
@@ -356,6 +357,7 @@ func (b *bybitOrderBookBase) saveBybitDepthOrderBook(result mybybitapi.WsDepth) 
 	ts := result.Ts
 	depth := &Depth{
 		UId:         result.U,
+		PreUId:      result.U - 1,
 		AccountType: b.AccountType.String(),
 		Exchange:    b.Exchange.String(),
 		Symbol:      result.Symbol,

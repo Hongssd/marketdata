@@ -274,6 +274,7 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 						continue
 					}
 					depth.UId = result.SeqId
+					depth.PreUId = result.PrevSeqId
 					callback(depth, err)
 				}
 
@@ -380,6 +381,7 @@ func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 	ts, _ := strconv.ParseInt(result.Ts, 10, 64)
 	depth := &Depth{
 		UId:         result.SeqId,
+		PreUId:      result.PrevSeqId,
 		AccountType: okx_common.GetAccountTypeFromSymbol(result.InstId),
 		Exchange:    string(o.Exchange),
 		Symbol:      result.InstId,
