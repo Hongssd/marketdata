@@ -374,6 +374,7 @@ func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 
 	ts, _ := strconv.ParseInt(result.Ts, 10, 64)
 	depth := &Depth{
+		Uid:         result.SeqId,
 		AccountType: okx_common.GetAccountTypeFromSymbol(result.InstId),
 		Exchange:    string(o.Exchange),
 		Symbol:      result.InstId,

@@ -349,6 +349,7 @@ func (b *bybitOrderBookBase) saveBybitDepthOrderBook(result mybybitapi.WsDepth) 
 
 	ts := result.Ts
 	depth := &Depth{
+		Uid:         result.Seq,
 		AccountType: b.AccountType.String(),
 		Exchange:    b.Exchange.String(),
 		Symbol:      result.Symbol,

@@ -569,6 +569,7 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBook(result mybinanceapi.WsD
 	wg.Wait()
 
 	depth := &Depth{
+		Uid:         result.LastUpdateID,
 		AccountType: string(b.AccountType),
 		Exchange:    string(b.Exchange),
 		Symbol:      result.Symbol,
