@@ -137,11 +137,11 @@ func (b *BinanceOrderBook) GetDepth(BinanceAccountType BinanceAccountType, symbo
 		log.Error(err)
 		return nil, err
 	}
+
 	newDepth, err := orderBook.LoadToDepth(depth, level)
 	if err != nil {
 		return nil, err
 	}
-
 	//如果超时限制大于0 判断深度是否超时
 	if timeoutMilli > 0 && time.Now().UnixMilli()-newDepth.Timestamp > timeoutMilli {
 		err := fmt.Errorf("symbol:%s depth timeout", symbol)
@@ -234,17 +234,30 @@ func (b *binanceOrderBookBase) subscribeBinanceDepthMultiple(binanceWsClient *my
 					}
 				}
 
+				//log.Warn(result.LowerU, result.UpperU, result.LastUpdateID)
+
 				//保存至OrderBook
 				err = b.saveBinanceDepthOrderBook(result)
 				if err != nil {
 					log.Error(err)
 					continue
 				}
-
+				UId := int64(0)
+				if result.LastUpdateID != 0 {
+					UId = result.LastUpdateID
+				} else if result.LowerU != 0 {
+					UId = result.LowerU
+				}
 				if callback == nil || b.callBackDepthLevel == 0 {
 					continue
 				}
-				callback(b.parent.GetDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli))
+				depth, err := b.parent.GetDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli)
+				if err != nil {
+					callback(nil, err)
+					continue
+				}
+				depth.UId = UId
+				callback(depth, err)
 			case <-binanceSub.CloseChan():
 				log.Info("订阅已关闭: ", binanceSub.Params)
 				return
@@ -459,7 +472,7 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBookFromCache(Symbol string)
 		log.Error(err)
 		return err
 	}
-	// log.Info(lastUpdateId)
+	log.Info(lastUpdateId)
 
 	//读取缓存到OrderBook
 	cacheMap, ok := b.OrderBookCacheMap.Load(Symbol)
@@ -555,6 +568,7 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBook(result mybinanceapi.WsD
 			orderBook.PutBid(bid.Price, bid.Quantity)
 		}
 	}()
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -567,9 +581,15 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBook(result mybinanceapi.WsD
 		}
 	}()
 	wg.Wait()
-
+	//log.Warn(result.LowerU, result.UpperU, result.LastUpdateID)
+	UId := int64(0)
+	if result.LastUpdateID != 0 {
+		UId = result.LastUpdateID
+	} else if result.LowerU != 0 {
+		UId = result.LowerU
+	}
 	depth := &Depth{
-		Uid:         result.LastUpdateID,
+		UId:         UId,
 		AccountType: string(b.AccountType),
 		Exchange:    string(b.Exchange),
 		Symbol:      result.Symbol,

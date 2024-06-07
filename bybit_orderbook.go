@@ -254,7 +254,13 @@ func (b *bybitOrderBookBase) subscribeBybitDepthMultiple(bybitWsClient *mybybita
 					if callback == nil || b.callBackDepthLevel == 0 {
 						continue
 					}
-					callback(b.parent.GetDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli))
+					depth, err := b.parent.GetDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli)
+					if err != nil {
+						callback(nil, err)
+						continue
+					}
+					depth.UId = result.U
+					callback(depth, err)
 				}
 			case <-bybitSub.CloseChan():
 				log.Info("订阅已关闭: ", bybitSub.Args)
@@ -349,7 +355,7 @@ func (b *bybitOrderBookBase) saveBybitDepthOrderBook(result mybybitapi.WsDepth) 
 
 	ts := result.Ts
 	depth := &Depth{
-		Uid:         result.Seq,
+		UId:         result.U,
 		AccountType: b.AccountType.String(),
 		Exchange:    b.Exchange.String(),
 		Symbol:      result.Symbol,

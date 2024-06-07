@@ -132,9 +132,15 @@ func (b *binanceDepthBase) subscribeBinanceDepthMultiple(binanceWsClient *mybina
 				for _, ask := range result.Asks {
 					asks = append(asks, PriceLevel{Price: ask.Price, Quantity: ask.Quantity})
 				}
-
+				UId := int64(0)
+				if result.LastUpdateID != 0 {
+					UId = result.LastUpdateID
+				} else if result.LowerU != 0 {
+					UId = result.LowerU
+				}
 				//保存至Depth
 				depth := &Depth{
+					UId:         UId,
 					Exchange:    b.Exchange.String(),
 					AccountType: b.AccountType.String(),
 					Symbol:      result.Symbol,

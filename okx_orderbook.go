@@ -268,8 +268,13 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 					if callback == nil || o.callBackDepthLevel == 0 {
 						continue
 					}
-
-					callback(o.GetDepth(Symbol, int(o.callBackDepthLevel), o.callBackDepthTimeoutMilli))
+					depth, err := o.GetDepth(Symbol, int(o.callBackDepthLevel), o.callBackDepthTimeoutMilli)
+					if err != nil {
+						callback(nil, err)
+						continue
+					}
+					depth.UId = result.SeqId
+					callback(depth, err)
 				}
 
 			case <-okxSub.CloseChan():
@@ -374,7 +379,7 @@ func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 
 	ts, _ := strconv.ParseInt(result.Ts, 10, 64)
 	depth := &Depth{
-		Uid:         result.SeqId,
+		UId:         result.SeqId,
 		AccountType: okx_common.GetAccountTypeFromSymbol(result.InstId),
 		Exchange:    string(o.Exchange),
 		Symbol:      result.InstId,

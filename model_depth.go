@@ -6,7 +6,7 @@ import (
 )
 
 type Depth struct {
-	Uid         int64        `json:"uid"`
+	UId         int64        `json:"u_id"`
 	Exchange    string       `json:"exchange"`
 	AccountType string       `json:"account_type"`
 	Symbol      string       `json:"symbol"`
