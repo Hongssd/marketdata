@@ -78,31 +78,33 @@ func stringToInt64(str string) int64 {
 }
 
 func BinanceGetServerTimeDelta(accountType BinanceAccountType) (int64, error) {
+	start := time.Now().UnixMilli()
 	switch accountType {
 	case BINANCE_SPOT:
 		res, err := binance.NewSpotRestClient("", "").NewServerTime().Do()
 		if err != nil {
 			return 0, err
 		}
-		return time.Now().UnixMilli() - res.ServerTime, nil
+		return start - res.ServerTime, nil
 	case BINANCE_FUTURE:
 		res, err := binance.NewFutureRestClient("", "").NewServerTime().Do()
 		if err != nil {
 			return 0, err
 		}
-		return time.Now().UnixMilli() - res.ServerTime, nil
+		return start - res.ServerTime, nil
 	case BINANCE_SWAP:
 		res, err := binance.NewSwapRestClient("", "").NewServerTime().Do()
 		if err != nil {
 			return 0, err
 		}
-		return time.Now().UnixMilli() - res.ServerTime, nil
+		return start - res.ServerTime, nil
 	default:
 		return 0, ErrorAccountType
 	}
 }
 
 func OkxGetServerTimeDelta() (int64, error) {
+	start := time.Now().UnixMilli()
 	res, err := okx.NewRestClient("", "", "").PublicRestClient().NewPublicRestPublicTime().Do()
 	if err != nil {
 		return 0, err
@@ -111,10 +113,11 @@ func OkxGetServerTimeDelta() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return time.Now().UnixMilli() - serverTime, nil
+	return start - serverTime, nil
 }
 
 func BybitGetServerTimeDelta() (int64, error) {
+	start := time.Now().UnixMilli()
 	res, err := mybybitapi.NewRestClient("", "").PublicRestClient().NewMarketTime().Do()
 	if err != nil {
 		return 0, err
@@ -125,5 +128,5 @@ func BybitGetServerTimeDelta() (int64, error) {
 	}
 
 	serverTime := serverTimeNano / 1e6
-	return time.Now().UnixMilli() - serverTime, nil
+	return start - serverTime, nil
 }
