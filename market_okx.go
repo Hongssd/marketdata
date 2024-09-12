@@ -10,7 +10,9 @@ type OkxMarketData struct {
 	serverTimeDelta int64
 	*OkxOrderBook
 	*OkxKline
+	*OkxOption
 	*OkxAggTrade
+	*OkxMarkPrice
 }
 
 func NewOkxMarketDataDefault() (*OkxMarketData, error) {
@@ -40,9 +42,19 @@ func (om *OkxMarketData) InitOkxKline(config OkxKlineConfig) error {
 	om.OkxKline = o
 	return nil
 }
+func (om *OkxMarketData) InitOkxOption(config OkxOptionConfig) error {
+	o := om.newOkxOption(config)
+	om.OkxOption = o
+	return nil
+}
 func (om *OkxMarketData) InitOkxAggTrade(config OkxAggTradeConfig) error {
 	o := om.newOkxAggTrade(config)
 	om.OkxAggTrade = o
+	return nil
+}
+func (om *OkxMarketData) InitOkxMarkPrice(config OkxMarkPriceConfig) error {
+	o := om.newOkxMarkPrice(config)
+	om.OkxMarkPrice = o
 	return nil
 }
 
