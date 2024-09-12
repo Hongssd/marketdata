@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Hongssd/myokxapi"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -133,7 +132,7 @@ func (o *OkxOption) getOptionInstIds(uly string) ([]string, error) {
 }
 
 func (o *OkxOption) subscribeOkxOptionMultiple(okxWsClient *myokxapi.PublicWsStreamClient, symbols []string, callback func(ot *OptionTicker, err error)) error {
-	wg := sync.WaitGroup{}
+	//wg := sync.WaitGroup{}
 
 	osSub, err := okxWsClient.SubscribeOptSummaryMultiple(symbols) // 期权定价ws opt-summary 频道订阅
 	if err != nil {
@@ -147,9 +146,9 @@ func (o *OkxOption) subscribeOkxOptionMultiple(okxWsClient *myokxapi.PublicWsStr
 		o.CallBackMap.Store(symbolKey, callback)
 	}
 
-	wg.Add(1)
+	//wg.Add(1)
 	go func() {
-		defer wg.Done()
+		//defer wg.Done()
 		for {
 			select {
 			case err := <-osSub.ErrChan():
@@ -192,7 +191,7 @@ func (o *OkxOption) subscribeOkxOptionMultiple(okxWsClient *myokxapi.PublicWsStr
 	}
 	atomic.AddInt64(count, currentCount)
 
-	wg.Wait()
+	//wg.Wait()
 	return nil
 }
 

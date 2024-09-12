@@ -3,7 +3,6 @@ package marketdata
 import (
 	"fmt"
 	"github.com/Hongssd/myokxapi"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -119,10 +118,10 @@ func (o *OkxMarkPrice) subscribeOkxMarkPriceMultiple(okxWsClient *myokxapi.Publi
 		o.SubMap.Store(symbol, okxSub)
 		o.CallBackMap.Store(symbol, callback)
 	}
-	wg := sync.WaitGroup{}
-	wg.Add(1)
+	//wg := sync.WaitGroup{}
+	//wg.Add(1)
 	go func() {
-		defer wg.Done()
+		//defer wg.Done()
 		for {
 			select {
 			case err := <-okxSub.ErrChan():
@@ -155,7 +154,7 @@ func (o *OkxMarkPrice) subscribeOkxMarkPriceMultiple(okxWsClient *myokxapi.Publi
 		o.WsClientListMap.Store(okxWsClient, &initCount)
 	}
 	atomic.AddInt64(count, currentCount)
-	wg.Wait()
+	//wg.Wait()
 	return nil
 }
 
