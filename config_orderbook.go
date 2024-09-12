@@ -26,6 +26,13 @@ type OkxOrderBookConfig struct {
 	CallBackDepthTimeoutMilli int64 //超时毫秒数
 }
 
+type OkxOptionBookConfig struct {
+	WsBooksType               myokxapi.WsBooksType
+	PerConnSubNum             int64 //每条链接订阅的数量
+	PerSubMaxLen              int   //每条链接每次订阅的最大数量
+	CallBackDepthTimeoutMilli int64 //超时毫秒数
+}
+
 type BybitOrderBookConfig struct {
 	SpotConfig    BybitOrderBookConfigBase
 	LinearConfig  BybitOrderBookConfigBase
