@@ -115,19 +115,22 @@ func (o *OkxOption) SubscribeOptionsWithCallBack(symbols []string, callback func
 	return nil
 }
 
-func (o *OkxOption) getOptionInstIds(uly string) ([]string, error) {
-	res, err := okx.NewRestClient(o.parent.APIKey, o.parent.SecretKey, o.parent.Passphrase).PublicRestClient().NewPublicRestPublicInstruments().
-		InstType("OPTION").
-		Uly(uly).
-		Do()
-	if err != nil {
-		log.Error(err)
-		return nil, err
-	}
+func (o *OkxOption) GetOptionInstIds(ulys []string) ([]string, error) {
 	var instIds []string
-	for _, instId := range res.Data {
-		instIds = append(instIds, instId.InstId)
+	for _, uly := range ulys {
+		res, err := okx.NewRestClient(o.parent.APIKey, o.parent.SecretKey, o.parent.Passphrase).PublicRestClient().NewPublicRestPublicInstruments().
+			InstType("OPTION").
+			Uly(uly).
+			Do()
+		if err != nil {
+			log.Error(err)
+			return nil, err
+		}
+		for _, instId := range res.Data {
+			instIds = append(instIds, instId.InstId)
+		}
 	}
+
 	return instIds, nil
 }
 
