@@ -34,6 +34,7 @@ const (
 	OKX_SPOT   OkxAccountType = "SPOT"
 	OKX_FUTURE OkxAccountType = "SWAP"
 	OKX_SWAP   OkxAccountType = "FUTURES"
+	OKX_OPTION OkxAccountType = "OPTION"
 )
 
 func (oat OkxAccountType) String() string {
