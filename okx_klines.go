@@ -143,6 +143,9 @@ func (o *OkxKline) subscribeOkxKlineMultiple(okxWsClient *myokxapi.BusinessWsStr
 				if result.Confirm == "1" {
 					confirm = true
 				}
+				if okx_common == nil {
+					okx_common = (&okxCommon{}).InitCommon()
+				}
 				accountType := okx_common.GetAccountTypeFromSymbol(result.InstId)
 				volume := 0.0
 				if accountType == "SPOT" {

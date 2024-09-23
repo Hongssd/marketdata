@@ -378,6 +378,9 @@ func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 	}()
 	wg.Wait()
 
+	if okx_common == nil {
+		okx_common = (&okxCommon{}).InitCommon()
+	}
 	ts, _ := strconv.ParseInt(result.Ts, 10, 64)
 	depth := &Depth{
 		UId:         result.SeqId,
