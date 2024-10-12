@@ -333,16 +333,16 @@ func (o *OkxOrderBook) initOkxDepthOrderBook(result myokxapi.WsBooks) {
 // 将Depth保存至OrderBook
 func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 	Symbol := result.InstId
+
 	lastSeqId, ok := o.OrderBookLastUpdateIdMap.Load(Symbol)
 	if ok {
 		if result.PrevSeqId != lastSeqId {
 			err := fmt.Errorf("%s lastSeqId:%d,PrevSeqId:%d", Symbol, lastSeqId, result.PrevSeqId)
+			o.OrderBookLastUpdateIdMap.Store(Symbol, result.SeqId)
 			return err
 		}
 	}
-
 	o.OrderBookLastUpdateIdMap.Store(Symbol, result.SeqId)
-
 	orderBook, ok := o.OrderBookRBTreeMap.Load(Symbol)
 	if !ok {
 		orderBook = NewOrderBook()
