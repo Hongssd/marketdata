@@ -336,6 +336,20 @@ func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 
 	lastSeqId, ok := o.OrderBookLastUpdateIdMap.Load(Symbol)
 	if ok {
+		//增量推送1（正常更新）：prevSeqId = 10，seqId = 15
+		//增量推送2（无更新）：prevSeqId = 15，seqId = 15
+		//增量推送3（序列重置）：prevSeqId = 15，seqId = 3
+		//增量推送4（正常更新）：prevSeqId = 3，seqId = 5
+		if result.SeqId > result.PrevSeqId {
+			//正常推送
+		} else if result.SeqId == result.PrevSeqId {
+			//无更新
+			return nil
+		} else if result.SeqId < result.PrevSeqId {
+			//序列重置
+			log.Warnf("%s seqId reset %d to %d", Symbol, result.PrevSeqId, result.SeqId)
+		}
+
 		if result.PrevSeqId != lastSeqId {
 			err := fmt.Errorf("%s lastSeqId:%d,PrevSeqId:%d", Symbol, lastSeqId, result.PrevSeqId)
 			o.OrderBookLastUpdateIdMap.Store(Symbol, result.SeqId)
