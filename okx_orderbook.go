@@ -350,11 +350,12 @@ func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 			log.Warnf("%s seqId reset %d to %d", Symbol, result.PrevSeqId, result.SeqId)
 		}
 
-		if result.PrevSeqId != lastSeqId {
-			err := fmt.Errorf("%s lastSeqId:%d,PrevSeqId:%d", Symbol, lastSeqId, result.PrevSeqId)
-			o.OrderBookLastUpdateIdMap.Store(Symbol, result.SeqId)
-			return err
-		}
+		//
+		//if result.PrevSeqId != lastSeqId {
+		//	err := fmt.Errorf("%s lastSeqId:%d,PrevSeqId:%d", Symbol, lastSeqId, result.PrevSeqId)
+		//	o.OrderBookLastUpdateIdMap.Store(Symbol, result.SeqId)
+		//	return err
+		//}
 	}
 	o.OrderBookLastUpdateIdMap.Store(Symbol, result.SeqId)
 	orderBook, ok := o.OrderBookRBTreeMap.Load(Symbol)
