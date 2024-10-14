@@ -359,7 +359,7 @@ func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 	}
 	o.OrderBookLastUpdateIdMap.Store(Symbol, result.SeqId)
 	orderBook, ok := o.OrderBookRBTreeMap.Load(Symbol)
-	if !ok {
+	if !ok || orderBook == nil {
 		orderBook = NewOrderBook()
 		o.OrderBookRBTreeMap.Store(Symbol, orderBook)
 	}
