@@ -349,7 +349,7 @@ func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 			//序列重置
 			log.Warnf("%s seqId reset %d to %d", Symbol, result.PrevSeqId, result.SeqId)
 		}
-
+		_ = lastSeqId
 		//
 		//if result.PrevSeqId != lastSeqId {
 		//	err := fmt.Errorf("%s lastSeqId:%d,PrevSeqId:%d", Symbol, lastSeqId, result.PrevSeqId)
