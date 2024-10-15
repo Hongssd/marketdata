@@ -32,25 +32,41 @@ func NewOrderBook() *OrderBook {
 		Asks: rbt.NewWith(compareAskPrice),
 	}
 }
-func (ob OrderBook) PutBid(price, quantity float64) {
+
+func (ob *OrderBook) check() {
+	if ob == nil {
+		ob = NewOrderBook()
+	}
+	if ob.Bids == nil {
+		ob.Bids = rbt.NewWith(compareBidPrice)
+	}
+	if ob.Asks == nil {
+		ob.Asks = rbt.NewWith(compareAskPrice)
+	}
+}
+func (ob *OrderBook) PutBid(price, quantity float64) {
+	ob.check()
 	ob.Bids.Put(price, &Order{price, quantity})
 }
-func (ob OrderBook) PutAsk(price, quantity float64) {
+func (ob *OrderBook) PutAsk(price, quantity float64) {
+	ob.check()
 	ob.Asks.Put(price, &Order{price, quantity})
 }
-func (ob OrderBook) RemoveBid(price float64) {
+func (ob *OrderBook) RemoveBid(price float64) {
+	ob.check()
 	ob.Bids.Remove(price)
 }
-func (ob OrderBook) RemoveAsk(price float64) {
+func (ob *OrderBook) RemoveAsk(price float64) {
+	ob.check()
 	ob.Asks.Remove(price)
 }
 
-func (ob OrderBook) ClearAll() {
+func (ob *OrderBook) ClearAll() {
 	ob.Bids.Clear()
 	ob.Asks.Clear()
 }
 
-func (ob OrderBook) LoadToDepth(depth *Depth, level int) (*Depth, error) {
+func (ob *OrderBook) LoadToDepth(depth *Depth, level int) (*Depth, error) {
 	//if level > ob.Bids.Size() || level > ob.Asks.Size() {
 	//	//err := fmt.Errorf("[%s][%s][%s]level %d is larger than orderbook size", depth.Exchange, depth.AccountType, depth.Symbol, level)
 	//	//return nil, err
