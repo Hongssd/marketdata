@@ -22,14 +22,18 @@ type Order struct {
 	Quantity float64 // 订单的数量
 }
 type OrderBook struct {
-	Bids *rbt.Tree
-	Asks *rbt.Tree
+	Bids   *rbt.Tree
+	Asks   *rbt.Tree
+	bidsMu *sync.Mutex
+	asksMu *sync.Mutex
 }
 
 func NewOrderBook() *OrderBook {
 	return &OrderBook{
-		Bids: rbt.NewWith(compareBidPrice),
-		Asks: rbt.NewWith(compareAskPrice),
+		Bids:   rbt.NewWith(compareBidPrice),
+		Asks:   rbt.NewWith(compareAskPrice),
+		bidsMu: &sync.Mutex{},
+		asksMu: &sync.Mutex{},
 	}
 }
 
@@ -37,28 +41,40 @@ func (ob *OrderBook) PutBid(price, quantity float64) {
 	if ob.Bids == nil {
 		return
 	}
+	ob.bidsMu.Lock()
+	defer ob.bidsMu.Unlock()
 	ob.Bids.Put(price, &Order{price, quantity})
 }
 func (ob *OrderBook) PutAsk(price, quantity float64) {
 	if ob.Asks == nil {
 		return
 	}
+	ob.asksMu.Lock()
+	defer ob.asksMu.Unlock()
 	ob.Asks.Put(price, &Order{price, quantity})
 }
 func (ob *OrderBook) RemoveBid(price float64) {
 	if ob.Bids == nil {
 		return
 	}
+	ob.bidsMu.Lock()
+	defer ob.bidsMu.Unlock()
 	ob.Bids.Remove(price)
 }
 func (ob *OrderBook) RemoveAsk(price float64) {
 	if ob.Asks == nil {
 		return
 	}
+	ob.asksMu.Lock()
+	defer ob.asksMu.Unlock()
 	ob.Asks.Remove(price)
 }
 
 func (ob *OrderBook) ClearAll() {
+	ob.bidsMu.Lock()
+	defer ob.bidsMu.Unlock()
+	ob.asksMu.Lock()
+	defer ob.asksMu.Unlock()
 	ob.Bids.Clear()
 	ob.Asks.Clear()
 }
