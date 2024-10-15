@@ -34,15 +34,27 @@ func NewOrderBook() *OrderBook {
 }
 
 func (ob *OrderBook) PutBid(price, quantity float64) {
+	if ob.Bids == nil {
+		return
+	}
 	ob.Bids.Put(price, &Order{price, quantity})
 }
 func (ob *OrderBook) PutAsk(price, quantity float64) {
+	if ob.Asks == nil {
+		return
+	}
 	ob.Asks.Put(price, &Order{price, quantity})
 }
 func (ob *OrderBook) RemoveBid(price float64) {
+	if ob.Bids == nil {
+		return
+	}
 	ob.Bids.Remove(price)
 }
 func (ob *OrderBook) RemoveAsk(price float64) {
+	if ob.Asks == nil {
+		return
+	}
 	ob.Asks.Remove(price)
 }
 

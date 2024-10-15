@@ -376,9 +376,6 @@ func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 			p, _ := decimal.NewFromString(bid.Price)
 			q, _ := decimal.NewFromString(bid.Quantity)
 			if q.IsZero() {
-				if orderBook == nil {
-					return
-				}
 				orderBook.RemoveBid(p.InexactFloat64())
 				continue
 			}
@@ -392,9 +389,6 @@ func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 			p, _ := decimal.NewFromString(ask.Price)
 			q, _ := decimal.NewFromString(ask.Quantity)
 			if q.IsZero() {
-				if orderBook == nil {
-					return
-				}
 				orderBook.RemoveAsk(p.InexactFloat64())
 				continue
 			}
