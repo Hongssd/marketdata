@@ -137,6 +137,11 @@ func (o *OkxAggTrade) subscribeOkxAggTradeMultiple(okxWsClient *myokxapi.PublicW
 				if result.Side == "buy" {
 					isMarket = false
 				}
+
+				if okx_common == nil {
+					okx_common = (&okxCommon{}).InitCommon()
+				}
+
 				//保存至AggTrade
 				aggTrade := &AggTrade{
 					AId:         result.TradeId,

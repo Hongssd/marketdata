@@ -369,20 +369,39 @@ func (o *OkxOrderBook) initOkxDepthOrderBook(result myokxapi.WsBooks) {
 // 将Depth保存至OrderBook
 func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 	Symbol := result.InstId
+
 	lastSeqId, ok := o.OrderBookLastUpdateIdMap.Load(Symbol)
 	if ok {
-		if result.PrevSeqId != lastSeqId {
-			err := fmt.Errorf("%s lastSeqId:%d,PrevSeqId:%d", Symbol, lastSeqId, result.PrevSeqId)
-			return err
+		//增量推送1（正常更新）：prevSeqId = 10，seqId = 15
+		//增量推送2（无更新）：prevSeqId = 15，seqId = 15
+		//增量推送3（序列重置）：prevSeqId = 15，seqId = 3
+		//增量推送4（正常更新）：prevSeqId = 3，seqId = 5
+		if result.SeqId > result.PrevSeqId {
+			//正常推送
+		} else if result.SeqId == result.PrevSeqId {
+			//无更新
+			return nil
+		} else if result.SeqId < result.PrevSeqId {
+			//序列重置
+			log.Warnf("%s seqId reset %d to %d", Symbol, result.PrevSeqId, result.SeqId)
 		}
+		_ = lastSeqId
+		//
+		//if result.PrevSeqId != lastSeqId {
+		//	err := fmt.Errorf("%s lastSeqId:%d,PrevSeqId:%d", Symbol, lastSeqId, result.PrevSeqId)
+		//	o.OrderBookLastUpdateIdMap.Store(Symbol, result.SeqId)
+		//	return err
+		//}
 	}
-
 	o.OrderBookLastUpdateIdMap.Store(Symbol, result.SeqId)
-
 	orderBook, ok := o.OrderBookRBTreeMap.Load(Symbol)
-	if !ok {
+	if !ok || orderBook == nil {
 		orderBook = NewOrderBook()
 		o.OrderBookRBTreeMap.Store(Symbol, orderBook)
+	}
+
+	if orderBook == nil {
+		return nil
 	}
 
 	var wg sync.WaitGroup
@@ -414,6 +433,9 @@ func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 	}()
 	wg.Wait()
 
+	if okx_common == nil {
+		okx_common = (&okxCommon{}).InitCommon()
+	}
 	ts, _ := strconv.ParseInt(result.Ts, 10, 64)
 	depth := &Depth{
 		UId:         result.SeqId,

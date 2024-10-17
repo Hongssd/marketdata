@@ -9,9 +9,9 @@ type okxCommon struct {
 	InstIdToInstTypeMap MySyncMap[string, string]
 }
 
-var okx_common = (&okxCommon{}).initCommon()
+var okx_common *okxCommon
 
-func (o *okxCommon) initCommon() *okxCommon {
+func (o *okxCommon) InitCommon() *okxCommon {
 	o.InstIdToInstTypeMap = NewMySyncMap[string, string]()
 	o.refreshOkxExchangeInfo()
 	c := cron.New(cron.WithSeconds())
