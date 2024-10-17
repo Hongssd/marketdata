@@ -1,10 +1,11 @@
 package marketdata
 
 import (
-	"github.com/Hongssd/mybybitapi"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/Hongssd/mybybitapi"
 )
 
 type MySyncMap[K any, V any] struct {
