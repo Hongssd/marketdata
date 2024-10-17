@@ -231,9 +231,6 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 		}
 	}
 	go func() {
-		// prevSeqId 初始化序号，当为-2时，表示未接收到全量数据，为-1时表示已接收到全量数据
-		prevSeqId := int64(-2)
-		orderBookQueue := OkxOrderBookQueue[myokxapi.WsBooks]{}
 		for {
 			select {
 			case err := <-okxSub.ErrChan():
@@ -251,40 +248,7 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 					o.OrderBookLastUpdateIdMap.Delete(Symbol)
 					o.OrderBookRBTreeMap.Delete(Symbol)
 					o.initOkxDepthOrderBook(result)
-
-					prevSeqId = result.PrevSeqId
-					for orderBookQueue.Size() > 0 {
-						result, err := orderBookQueue.Dequeue()
-						if err != nil {
-							log.Error(err)
-							return
-						}
-						err = o.saveOkxDepthOrderBook(result)
-						if err != nil {
-							log.Error(err)
-							//保存增量数据失败，直接重新订阅
-							go reSubThis(Symbol)
-							continue
-						}
-
-						if callback == nil || o.callBackDepthLevel == 0 {
-							continue
-						}
-						depth, err := o.GetDepth(Symbol, int(o.callBackDepthLevel), o.callBackDepthTimeoutMilli)
-						if err != nil {
-							callback(nil, err)
-							continue
-						}
-						depth.UId = result.SeqId
-						depth.PreUId = result.PrevSeqId
-						callback(depth, err)
-					}
 				case "update":
-					if prevSeqId < -1 {
-						// 没有收到全量数据，将增量数据缓存
-						orderBookQueue.Enqueue(result)
-						continue
-					}
 					//增量数据更新，需要进行校验
 					_, err := o.checkOkxDepthIsReady(Symbol)
 					if err != nil {

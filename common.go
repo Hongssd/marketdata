@@ -1,13 +1,11 @@
 package marketdata
 
 import (
-	"errors"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/Hongssd/mybybitapi"
-	"github.com/Hongssd/myokxapi"
 )
 
 type MySyncMap[K any, V any] struct {
@@ -132,28 +130,4 @@ func BybitGetServerTimeDelta() (int64, error) {
 
 	serverTime := serverTimeNano / 1e6
 	return start - serverTime, nil
-}
-
-type OkxOrderBookQueue[T myokxapi.WsBooks] struct {
-	items []T
-}
-
-// 入队
-func (q *OkxOrderBookQueue[T]) Enqueue(item T) {
-	q.items = append(q.items, item)
-}
-
-// 出队
-func (q *OkxOrderBookQueue[T]) Dequeue() (T, error) {
-	if len(q.items) == 0 {
-		return T{}, errors.New("order book queue is empty")
-	}
-	item := q.items[0]
-	q.items = q.items[1:]
-	return item, nil
-}
-
-// 获取队列长度
-func (q *OkxOrderBookQueue[T]) Size() int {
-	return len(q.items)
 }
