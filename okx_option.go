@@ -166,10 +166,10 @@ func (o *OkxOption) subscribeOkxOptionMultiple(okxWsClient *myokxapi.PublicWsStr
 						Gamma: stringToFloat64(result.GammaBS),
 						Delta: stringToFloat64(result.DeltaBS),
 					},
-					MarkIv:     stringToFloat64(result.MarkVol),
-					IndexPrice: stringToFloat64(result.FwdPx),
-					AskIv:      stringToFloat64(result.AskVol),
-					BidIv:      stringToFloat64(result.BidVol),
+					MarkIv:          stringToFloat64(result.MarkVol),
+					UnderlyingPrice: stringToFloat64(result.FwdPx),
+					AskIv:           stringToFloat64(result.AskVol),
+					BidIv:           stringToFloat64(result.BidVol),
 				}
 				o.OptionMap.Store(result.InstId, ot)
 				if callback != nil {
