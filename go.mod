@@ -3,7 +3,7 @@ module github.com/Hongssd/marketdata
 go 1.19
 
 require (
-	github.com/Hongssd/mybinanceapi v1.5.2
+	github.com/Hongssd/mybinanceapi v1.7.7
 	github.com/Hongssd/mybybitapi v0.0.7
 	github.com/Hongssd/myokxapi v0.4.4
 	github.com/emirpasic/gods v1.18.1
@@ -19,5 +19,5 @@ require (
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	golang.org/x/sys v0.25.0 // indirect
+	golang.org/x/sys v0.28.0 // indirect
 )
