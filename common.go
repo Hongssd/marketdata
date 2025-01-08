@@ -1,6 +1,7 @@
 package marketdata
 
 import (
+	"github.com/Hongssd/mygateapi"
 	"strconv"
 	"sync"
 	"time"
@@ -130,4 +131,13 @@ func BybitGetServerTimeDelta() (int64, error) {
 
 	serverTime := serverTimeNano / 1e6
 	return start - serverTime, nil
+}
+
+func GateGetServerTimeDelta() (int64, error) {
+	start := time.Now().UnixMilli()
+	res, err := mygateapi.NewRestClient("", "").PublicRestClient().NewPublicRestSpotTime().Do()
+	if err != nil {
+		return 0, err
+	}
+	return start - res.Data.ServerTime, nil
 }

@@ -10,6 +10,7 @@ const (
 	BINANCE Exchange = "BINANCE"
 	OKX     Exchange = "OKX"
 	BYBIT   Exchange = "BYBIT"
+	GATE    Exchange = "GATE"
 )
 
 func (e Exchange) String() string {
@@ -51,6 +52,18 @@ const (
 )
 
 func (bat BybitAccountType) String() string {
+	return string(bat)
+}
+
+type GateAccountType string
+
+const (
+	GATE_SPOT     GateAccountType = "SPOT"     //gate现货
+	GATE_FUTURES  GateAccountType = "FUTURES"  //gate永续
+	GATE_DELIVERY GateAccountType = "DELIVERY" //gate交割
+)
+
+func (bat GateAccountType) String() string {
 	return string(bat)
 }
 
@@ -227,8 +240,62 @@ func initBybitIntervalMillisecondMap() {
 	BybitIntervalMillisecondMap.Store(BYBIT_INTERVAL_M.String(), 30*24*60*60*1000)
 }
 
+type GateInterval string
+
+const (
+	GATE_INTERVAL_1m  GateInterval = "1m"
+	GATE_INTERVAL_3m  GateInterval = "3m"
+	GATE_INTERVAL_5m  GateInterval = "5m"
+	GATE_INTERVAL_15m GateInterval = "15m"
+	GATE_INTERVAL_30m GateInterval = "30m"
+	GATE_INTERVAL_1H  GateInterval = "1h"
+	GATE_INTERVAL_2H  GateInterval = "2h"
+	GATE_INTERVAL_4H  GateInterval = "4h"
+	GATE_INTERVAL_6H  GateInterval = "6h"
+	GATE_INTERVAL_8H  GateInterval = "8h"
+	GATE_INTERVAL_12H GateInterval = "12h"
+	GATE_INTERVAL_1D  GateInterval = "1d"
+	GATE_INTERVAL_2D  GateInterval = "2d"
+	GATE_INTERVAL_3D  GateInterval = "3d"
+	GATE_INTERVAL_5D  GateInterval = "5d"
+	GATE_INTERVAL_7D  GateInterval = "7d"
+	GATE_INTERVAL_30D GateInterval = "30d"
+)
+
+func (i GateInterval) String() string {
+	return string(i)
+}
+
+func (i GateInterval) Millisecond() int64 {
+	m, _ := GateIntervalMillisecondMap.Load(i.String())
+	return m
+}
+
+var GateIntervalMillisecondMap = NewMySyncMap[string, int64]()
+
+func initGateIntervalMillisecondMap() {
+	GateIntervalMillisecondMap.Store(GATE_INTERVAL_1m.String(), 60*1000)
+	GateIntervalMillisecondMap.Store(GATE_INTERVAL_3m.String(), 3*60*1000)
+	GateIntervalMillisecondMap.Store(GATE_INTERVAL_5m.String(), 5*60*1000)
+	GateIntervalMillisecondMap.Store(GATE_INTERVAL_15m.String(), 15*60*1000)
+	GateIntervalMillisecondMap.Store(GATE_INTERVAL_30m.String(), 30*60*1000)
+	GateIntervalMillisecondMap.Store(GATE_INTERVAL_1H.String(), 60*60*1000)
+	GateIntervalMillisecondMap.Store(GATE_INTERVAL_2H.String(), 2*60*60*1000)
+	GateIntervalMillisecondMap.Store(GATE_INTERVAL_4H.String(), 4*60*60*1000)
+	GateIntervalMillisecondMap.Store(GATE_INTERVAL_6H.String(), 6*60*60*1000)
+	GateIntervalMillisecondMap.Store(GATE_INTERVAL_8H.String(), 8*60*60*1000)
+	GateIntervalMillisecondMap.Store(GATE_INTERVAL_12H.String(), 12*60*60*1000)
+	GateIntervalMillisecondMap.Store(GATE_INTERVAL_1D.String(), 24*60*60*1000)
+	GateIntervalMillisecondMap.Store(GATE_INTERVAL_2D.String(), 2*24*60*60*1000)
+	GateIntervalMillisecondMap.Store(GATE_INTERVAL_3D.String(), 3*24*60*60*1000)
+	GateIntervalMillisecondMap.Store(GATE_INTERVAL_5D.String(), 5*24*60*60*1000)
+	GateIntervalMillisecondMap.Store(GATE_INTERVAL_7D.String(), 7*24*60*60*1000)
+	GateIntervalMillisecondMap.Store(GATE_INTERVAL_30D.String(), 30*24*60*60*1000)
+}
+
 func init() {
 	initBinanceIntervalMillisecondMap()
 	initOkxIntervalMillisecondMap()
 	initBybitIntervalMillisecondMap()
+	initGateIntervalMillisecondMap()
 }
