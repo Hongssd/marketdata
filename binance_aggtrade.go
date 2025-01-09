@@ -129,7 +129,7 @@ func (b *binanceAggTradeBase) subscribeBinanceAggTradeMultiple(binanceWsClient *
 					Quantity:    result.Quantity,
 					First:       result.First,
 					Last:        result.Last,
-					TradeTime:   result.TradeTime,
+					TradeTime:   result.TradeTime + b.parent.parent.GetServerTimeDelta(b.AccountType),
 					IsMarket:    result.IsMarket,
 				}
 				b.AggTradeMap.Store(symbolKey, aggTrade)

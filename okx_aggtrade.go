@@ -151,7 +151,7 @@ func (o *OkxAggTrade) subscribeOkxAggTradeMultiple(okxWsClient *myokxapi.PublicW
 					Timestamp:   stringToInt64(result.Ts) + o.parent.serverTimeDelta,
 					Price:       stringToFloat64(result.Px),
 					Quantity:    stringToFloat64(result.Sz),
-					TradeTime:   stringToInt64(result.Ts),
+					TradeTime:   stringToInt64(result.Ts) + o.parent.serverTimeDelta,
 					IsMarket:    isMarket,
 				}
 				o.AggTradeMap.Store(result.Trades.InstId, aggTrade)
