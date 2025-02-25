@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"golang.org/x/sync/errgroup"
 	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/Hongssd/mybinanceapi"
 	"github.com/robfig/cron/v3"
@@ -467,7 +468,7 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBookFromCache(Symbol string)
 		log.Error(err)
 		return err
 	}
-	log.Info(lastUpdateId)
+	// log.Info(lastUpdateId)
 
 	//读取缓存到OrderBook
 	cacheMap, ok := b.OrderBookCacheMap.Load(Symbol)
