@@ -58,9 +58,9 @@ func (bat BybitAccountType) String() string {
 type GateAccountType string
 
 const (
-	GATE_SPOT     GateAccountType = "SPOT"     //gate现货
-	GATE_FUTURES  GateAccountType = "FUTURES"  //gate永续
-	GATE_DELIVERY GateAccountType = "DELIVERY" //gate交割
+	GATE_SPOT     GateAccountType = "spot"     //gate现货
+	GATE_FUTURES  GateAccountType = "futures"  //gate永续
+	GATE_DELIVERY GateAccountType = "delivery" //gate交割
 )
 
 func (bat GateAccountType) String() string {
