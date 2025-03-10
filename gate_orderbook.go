@@ -67,6 +67,7 @@ func (b *GateOrderBook) newGateOrderBookBase(config GateOrderBookConfigBase) *ga
 	if config.PerConnSubNum == 0 {
 		config.PerSubMaxLen = 50
 	}
+
 	return &gateOrderBookBase{
 		Exchange: GATE,
 		GateWsClientBase: GateWsClientBase{
@@ -156,12 +157,15 @@ func (b *GateOrderBook) GetDepth(GateAccountType GateAccountType, symbol string,
 
 // 订阅Gate深度底层执行
 func (b *gateOrderBookBase) subscribeGateDepthMultiple(gateWsClient *mygateapi.WsStreamClient, symbols []string, callback func(depth *Depth, err error)) error {
-
+	if b.AccountType == GATE_SPOT || b.AccountType == GATE_DELIVERY {
+		b.uSpeed = "100ms"
+	}
 	gateSub, err := gateWsClient.SubscribeOrderBookUpdateMultiple(symbols, b.uSpeed, b.level)
 	if err != nil {
 		log.Error(err)
 		return err
 	}
+
 	for _, symbol := range symbols {
 		b.WsClientMap.Store(symbol, gateWsClient)
 		b.SubMap.Store(symbol, gateSub)
