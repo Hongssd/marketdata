@@ -3,12 +3,13 @@ package marketdata
 import (
 	"errors"
 	"fmt"
-	"github.com/Hongssd/mygateapi"
-	"github.com/shopspring/decimal"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/Hongssd/mygateapi"
+	"github.com/shopspring/decimal"
 )
 
 type GateAggTrade struct {
@@ -138,18 +139,23 @@ func (b *gateAggTradeBase) subscribeGateAggTradeMultiple(gateWsClient *mygateapi
 					isMarket = true
 				}
 
+				now := time.Now().UnixMilli()
+				targetTs := r.TimeMs + b.parent.parent.GetServerTimeDelta()
+				if targetTs > now {
+					targetTs = now
+				}
 				//保存至AggTrade
 				aggTrade := &AggTrade{
 					AId:         strconv.FormatInt(result.Id, 10),
 					Exchange:    b.Exchange.String(),
 					AccountType: b.AccountType.String(),
 					Symbol:      result.Symbol,
-					Timestamp:   r.TimeMs + b.parent.parent.GetServerTimeDelta(),
+					Timestamp:   targetTs,
 					Price:       price.InexactFloat64(),
 					Quantity:    quantity.InexactFloat64(),
 					First:       first,
 					Last:        last,
-					TradeTime:   result.CreateTimeMs + b.parent.parent.GetServerTimeDelta(),
+					TradeTime:   targetTs,
 					IsMarket:    isMarket,
 				}
 				b.AggTradeMap.Store(symbolKey, aggTrade)

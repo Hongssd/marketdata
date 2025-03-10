@@ -142,16 +142,22 @@ func (o *OkxAggTrade) subscribeOkxAggTradeMultiple(okxWsClient *myokxapi.PublicW
 					okx_common = (&okxCommon{}).InitCommon()
 				}
 
+				now := time.Now().UnixMilli()
+				targetTs := stringToInt64(result.Ts) + o.parent.serverTimeDelta
+				if targetTs > now {
+					targetTs = now
+				}
+
 				//保存至AggTrade
 				aggTrade := &AggTrade{
 					AId:         result.TradeId,
 					Exchange:    o.Exchange.String(),
 					AccountType: okx_common.GetAccountTypeFromSymbol(result.Trades.InstId),
 					Symbol:      result.Trades.InstId,
-					Timestamp:   stringToInt64(result.Ts) + o.parent.serverTimeDelta,
+					Timestamp:   targetTs,
 					Price:       stringToFloat64(result.Px),
 					Quantity:    stringToFloat64(result.Sz),
-					TradeTime:   stringToInt64(result.Ts) + o.parent.serverTimeDelta,
+					TradeTime:   targetTs,
 					IsMarket:    isMarket,
 				}
 				o.AggTradeMap.Store(result.Trades.InstId, aggTrade)

@@ -129,18 +129,23 @@ func (b *bybitAggTradeBase) subscribeBybitAggTradeMultiple(bybitWsClient *mybybi
 						//买方是做市方
 						isMarket = true
 					}
+					now := time.Now().UnixMilli()
+					targetTs := data.Timestamp + b.parent.parent.GetServerTimeDelta()
+					if targetTs > now {
+						targetTs = now
+					}
 					//保存至AggTrade
 					aggTrade := &AggTrade{
 						AId:         data.TradeId,
 						Exchange:    b.Exchange.String(),
 						AccountType: b.AccountType.String(),
 						Symbol:      data.Symbol,
-						Timestamp:   time.Now().UnixMilli() + b.parent.parent.GetServerTimeDelta(),
+						Timestamp:   targetTs,
 						Price:       stringToFloat64(data.Price),
 						Quantity:    stringToFloat64(data.Volume),
 						First:       0,
 						Last:        0,
-						TradeTime:   data.Timestamp + b.parent.parent.GetServerTimeDelta(),
+						TradeTime:   targetTs,
 						IsMarket:    isMarket,
 					}
 					b.AggTradeMap.Store(symbolKey, aggTrade)

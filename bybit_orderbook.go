@@ -3,11 +3,12 @@ package marketdata
 import (
 	"errors"
 	"fmt"
-	"github.com/Hongssd/mybybitapi"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/Hongssd/mybybitapi"
 )
 
 type BybitOrderBook struct {
@@ -354,14 +355,19 @@ func (b *bybitOrderBookBase) saveBybitDepthOrderBook(result mybybitapi.WsDepth) 
 	}()
 	wg.Wait()
 
+	now := time.Now().UnixMilli()
 	ts := result.Ts
+	targetTs := ts + b.parent.parent.ServerTimeDelta
+	if targetTs > now {
+		targetTs = now
+	}
 	depth := &Depth{
 		UId:         result.U,
 		PreUId:      result.U - 1,
 		AccountType: b.AccountType.String(),
 		Exchange:    b.Exchange.String(),
 		Symbol:      result.Symbol,
-		Timestamp:   ts + b.parent.parent.ServerTimeDelta,
+		Timestamp:   targetTs,
 	}
 	b.OrderBookMap.Store(Symbol, depth)
 	return nil

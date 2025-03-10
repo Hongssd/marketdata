@@ -400,14 +400,20 @@ func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 	if okx_common == nil {
 		okx_common = (&okxCommon{}).InitCommon()
 	}
+	now := time.Now().UnixMilli()
 	ts, _ := strconv.ParseInt(result.Ts, 10, 64)
+	targetTs := ts + o.parent.serverTimeDelta
+	if targetTs > now {
+		targetTs = now
+	}
+
 	depth := &Depth{
 		UId:         result.SeqId,
 		PreUId:      result.PrevSeqId,
 		AccountType: okx_common.GetAccountTypeFromSymbol(result.InstId),
 		Exchange:    string(o.Exchange),
 		Symbol:      result.InstId,
-		Timestamp:   ts + o.parent.serverTimeDelta,
+		Timestamp:   targetTs,
 	}
 	o.OrderBookMap.Store(Symbol, depth)
 	return nil

@@ -580,13 +580,18 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBook(result mybinanceapi.WsD
 	//log.Warn(result.LowerU, result.UpperU, result.LastUpdateID)
 
 	UId, PreUId := b.GetUidAndPreUid(result)
+	now := time.Now().UnixMilli()
+	targetTs := result.Timestamp + b.parent.parent.GetServerTimeDelta(b.AccountType)
+	if targetTs > now {
+		targetTs = now
+	}
 	depth := &Depth{
 		UId:         UId,
 		PreUId:      PreUId,
 		AccountType: string(b.AccountType),
 		Exchange:    string(b.Exchange),
 		Symbol:      result.Symbol,
-		Timestamp:   result.Timestamp + b.parent.parent.GetServerTimeDelta(b.AccountType),
+		Timestamp:   targetTs,
 	}
 	b.OrderBookMap.Store(Symbol, depth)
 

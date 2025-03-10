@@ -3,9 +3,10 @@ package marketdata
 import (
 	"errors"
 	"fmt"
-	"github.com/Hongssd/mybinanceapi"
 	"sync/atomic"
 	"time"
+
+	"github.com/Hongssd/mybinanceapi"
 )
 
 type BinanceKline struct {
@@ -121,9 +122,14 @@ func (b *binanceKlineBase) subscribeBinanceKlineMultiple(binanceWsClient *mybina
 				}
 			case result := <-binanceSub.ResultChan():
 				symbolKey := result.Symbol + "_" + result.Interval
+				now := time.Now().UnixMilli()
+				targetTs := result.Timestamp + b.parent.parent.GetServerTimeDelta(b.AccountType)
+				if targetTs > now {
+					targetTs = now
+				}
 				//保存至Kline
 				kline := &Kline{
-					Timestamp:            result.Timestamp + b.parent.parent.GetServerTimeDelta(b.AccountType),
+					Timestamp:            targetTs,
 					Exchange:             b.Exchange.String(),
 					AccountType:          b.AccountType.String(),
 					Symbol:               result.Symbol,

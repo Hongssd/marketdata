@@ -140,6 +140,11 @@ func (b *gateDepthBase) subscribeGateDepthMultiple(gateWsClient *mygateapi.WsStr
 				}
 
 				UId, PreUId := b.GetUidAndPreUid(*result)
+				now := time.Now().UnixMilli()
+				targetTs := result.Timestamp + b.parent.parent.GetServerTimeDelta()
+				if targetTs > now {
+					targetTs = now
+				}
 				//保存至Depth
 				depth := &Depth{
 					UId:         UId,
@@ -147,7 +152,7 @@ func (b *gateDepthBase) subscribeGateDepthMultiple(gateWsClient *mygateapi.WsStr
 					Exchange:    b.Exchange.String(),
 					AccountType: b.AccountType.String(),
 					Symbol:      result.Symbol,
-					Timestamp:   result.Timestamp + b.parent.parent.GetServerTimeDelta(),
+					Timestamp:   targetTs,
 					Bids:        bids,
 					Asks:        asks,
 				}

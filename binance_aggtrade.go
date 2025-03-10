@@ -117,19 +117,23 @@ func (b *binanceAggTradeBase) subscribeBinanceAggTradeMultiple(binanceWsClient *
 				}
 			case result := <-binanceSub.ResultChan():
 				symbolKey := result.Symbol
-
+				now := time.Now().UnixMilli()
+				targetTs := result.Timestamp + b.parent.parent.GetServerTimeDelta(b.AccountType)
+				if targetTs > now {
+					targetTs = now
+				}
 				//保存至AggTrade
 				aggTrade := &AggTrade{
 					AId:         strconv.FormatInt(result.AId, 10),
 					Exchange:    b.Exchange.String(),
 					AccountType: b.AccountType.String(),
 					Symbol:      result.Symbol,
-					Timestamp:   result.Timestamp + b.parent.parent.GetServerTimeDelta(b.AccountType),
+					Timestamp:   targetTs,
 					Price:       result.Price,
 					Quantity:    result.Quantity,
 					First:       result.First,
 					Last:        result.Last,
-					TradeTime:   result.TradeTime + b.parent.parent.GetServerTimeDelta(b.AccountType),
+					TradeTime:   targetTs,
 					IsMarket:    result.IsMarket,
 				}
 				b.AggTradeMap.Store(symbolKey, aggTrade)

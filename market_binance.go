@@ -1,9 +1,10 @@
 package marketdata
 
 import (
+	"sync"
+
 	"github.com/Hongssd/mybinanceapi"
 	"github.com/robfig/cron/v3"
-	"sync"
 )
 
 type BinanceMarketData struct {

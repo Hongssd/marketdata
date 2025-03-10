@@ -1,10 +1,11 @@
 package marketdata
 
 import (
-	"github.com/Hongssd/mygateapi"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/Hongssd/mygateapi"
 
 	"github.com/Hongssd/mybybitapi"
 )
@@ -80,25 +81,28 @@ func stringToInt64(str string) int64 {
 }
 
 func BinanceGetServerTimeDelta(accountType BinanceAccountType) (int64, error) {
-	start := time.Now().UnixMilli()
+
 	switch accountType {
 	case BINANCE_SPOT:
 		res, err := binance.NewSpotRestClient("", "").NewServerTime().Do()
 		if err != nil {
 			return 0, err
 		}
+		start := time.Now().UnixMilli()
 		return start - res.ServerTime, nil
 	case BINANCE_FUTURE:
 		res, err := binance.NewFutureRestClient("", "").NewServerTime().Do()
 		if err != nil {
 			return 0, err
 		}
+		start := time.Now().UnixMilli()
 		return start - res.ServerTime, nil
 	case BINANCE_SWAP:
 		res, err := binance.NewSwapRestClient("", "").NewServerTime().Do()
 		if err != nil {
 			return 0, err
 		}
+		start := time.Now().UnixMilli()
 		return start - res.ServerTime, nil
 	default:
 		return 0, ErrorAccountType
@@ -106,7 +110,7 @@ func BinanceGetServerTimeDelta(accountType BinanceAccountType) (int64, error) {
 }
 
 func OkxGetServerTimeDelta() (int64, error) {
-	start := time.Now().UnixMilli()
+
 	res, err := okx.NewRestClient("", "", "").PublicRestClient().NewPublicRestPublicTime().Do()
 	if err != nil {
 		return 0, err
@@ -115,11 +119,12 @@ func OkxGetServerTimeDelta() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	start := time.Now().UnixMilli()
 	return start - serverTime, nil
 }
 
 func BybitGetServerTimeDelta() (int64, error) {
-	start := time.Now().UnixMilli()
+
 	res, err := mybybitapi.NewRestClient("", "").PublicRestClient().NewMarketTime().Do()
 	if err != nil {
 		return 0, err
@@ -128,16 +133,17 @@ func BybitGetServerTimeDelta() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-
+	start := time.Now().UnixMilli()
 	serverTime := serverTimeNano / 1e6
 	return start - serverTime, nil
 }
 
 func GateGetServerTimeDelta() (int64, error) {
-	start := time.Now().UnixMilli()
+
 	res, err := mygateapi.NewRestClient("", "").PublicRestClient().NewPublicRestSpotTime().Do()
 	if err != nil {
 		return 0, err
 	}
+	start := time.Now().UnixMilli()
 	return start - res.Data.ServerTime, nil
 }

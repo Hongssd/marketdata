@@ -135,9 +135,14 @@ func (b *gateKlineBase) subscribeGateKlineMultiple(gateWsClient *mygateapi.WsStr
 					continue
 				}
 				timestamp := timestampUnix * 1000
+				now := time.Now().UnixMilli()
+				targetTs := timestamp + b.parent.parent.GetServerTimeDelta()
+				if targetTs > now {
+					targetTs = now
+				}
 				//保存至Kline
 				kline := &Kline{
-					Timestamp:            r.TimeMs + b.parent.parent.GetServerTimeDelta(),
+					Timestamp:            targetTs,
 					Exchange:             b.Exchange.String(),
 					AccountType:          b.AccountType.String(),
 					Symbol:               symbol,

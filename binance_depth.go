@@ -134,6 +134,11 @@ func (b *binanceDepthBase) subscribeBinanceDepthMultiple(binanceWsClient *mybina
 				}
 
 				UId, PreUId := b.GetUidAndPreUid(result)
+				now := time.Now().UnixMilli()
+				targetTs := result.Timestamp + b.parent.parent.GetServerTimeDelta(b.AccountType)
+				if targetTs > now {
+					targetTs = now
+				}
 				//保存至Depth
 				depth := &Depth{
 					UId:         UId,
@@ -141,7 +146,7 @@ func (b *binanceDepthBase) subscribeBinanceDepthMultiple(binanceWsClient *mybina
 					Exchange:    b.Exchange.String(),
 					AccountType: b.AccountType.String(),
 					Symbol:      result.Symbol,
-					Timestamp:   result.Timestamp + b.parent.parent.GetServerTimeDelta(b.AccountType),
+					Timestamp:   targetTs,
 					Bids:        bids,
 					Asks:        asks,
 				}
