@@ -28,6 +28,7 @@ type gateOrderBookBase struct {
 	limitRestCountPerMinute   int64  //每分钟rest最大请求数
 	currentRestCount          int64  //当前rest请求数
 	uSpeed                    string //深度更新速度
+	level                     string //深度档位
 	callBackDepthLevel        int64  //回调深度档位
 	callBackDepthTimeoutMilli int64  //回调深度超时时间
 	initOrderBookSize         int    //初始OrderBook档位
@@ -74,6 +75,7 @@ func (b *GateOrderBook) newGateOrderBookBase(config GateOrderBookConfigBase) *ga
 			WsClientListMap: GetPointer(NewMySyncMap[*mygateapi.WsStreamClient, *int64]()),
 		},
 		uSpeed:                    config.USpeed,
+		level:                     config.Level,
 		limitRestCountPerMinute:   config.LimitRestCountPerMinute,
 		callBackDepthLevel:        config.CallBackDepthLevel,
 		callBackDepthTimeoutMilli: config.CallBackDepthTimeoutMilli,
@@ -155,7 +157,7 @@ func (b *GateOrderBook) GetDepth(GateAccountType GateAccountType, symbol string,
 // 订阅Gate深度底层执行
 func (b *gateOrderBookBase) subscribeGateDepthMultiple(gateWsClient *mygateapi.WsStreamClient, symbols []string, callback func(depth *Depth, err error)) error {
 
-	gateSub, err := gateWsClient.SubscribeOrderBookUpdateMultiple(symbols, b.uSpeed, "100")
+	gateSub, err := gateWsClient.SubscribeOrderBookUpdateMultiple(symbols, b.uSpeed, b.level)
 	if err != nil {
 		log.Error(err)
 		return err
