@@ -81,36 +81,39 @@ func stringToInt64(str string) int64 {
 }
 
 func BinanceGetServerTimeDelta(accountType BinanceAccountType) (int64, error) {
-
+	t1 := time.Now().UnixMilli()
 	switch accountType {
 	case BINANCE_SPOT:
 		res, err := binance.NewSpotRestClient("", "").NewServerTime().Do()
 		if err != nil {
 			return 0, err
 		}
-		start := time.Now().UnixMilli()
-		return start - res.ServerTime, nil
+		t2 := time.Now().UnixMilli()
+		delta := res.ServerTime - (t2+t1)/2
+		return -delta, nil
 	case BINANCE_FUTURE:
 		res, err := binance.NewFutureRestClient("", "").NewServerTime().Do()
 		if err != nil {
 			return 0, err
 		}
-		start := time.Now().UnixMilli()
-		return start - res.ServerTime, nil
+		t2 := time.Now().UnixMilli()
+		delta := res.ServerTime - (t2+t1)/2
+		return -delta, nil
 	case BINANCE_SWAP:
 		res, err := binance.NewSwapRestClient("", "").NewServerTime().Do()
 		if err != nil {
 			return 0, err
 		}
-		start := time.Now().UnixMilli()
-		return start - res.ServerTime, nil
+		t2 := time.Now().UnixMilli()
+		delta := res.ServerTime - (t2+t1)/2
+		return -delta, nil
 	default:
 		return 0, ErrorAccountType
 	}
 }
 
 func OkxGetServerTimeDelta() (int64, error) {
-
+	t1 := time.Now().UnixMilli()
 	res, err := okx.NewRestClient("", "", "").PublicRestClient().NewPublicRestPublicTime().Do()
 	if err != nil {
 		return 0, err
@@ -119,12 +122,13 @@ func OkxGetServerTimeDelta() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	start := time.Now().UnixMilli()
-	return start - serverTime, nil
+	t2 := time.Now().UnixMilli()
+	delta := serverTime - (t2+t1)/2
+	return -delta, nil
 }
 
 func BybitGetServerTimeDelta() (int64, error) {
-
+	t1 := time.Now().UnixMilli()
 	res, err := mybybitapi.NewRestClient("", "").PublicRestClient().NewMarketTime().Do()
 	if err != nil {
 		return 0, err
@@ -133,17 +137,19 @@ func BybitGetServerTimeDelta() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	start := time.Now().UnixMilli()
+	t2 := time.Now().UnixMilli()
 	serverTime := serverTimeNano / 1e6
-	return start - serverTime, nil
+	delta := serverTime - (t2+t1)/2
+	return -delta, nil
 }
 
 func GateGetServerTimeDelta() (int64, error) {
-
+	t1 := time.Now().UnixMilli()
 	res, err := mygateapi.NewRestClient("", "").PublicRestClient().NewPublicRestSpotTime().Do()
 	if err != nil {
 		return 0, err
 	}
-	start := time.Now().UnixMilli()
-	return start - res.Data.ServerTime, nil
+	t2 := time.Now().UnixMilli()
+	delta := res.Data.ServerTime - (t2+t1)/2
+	return -delta, nil
 }
