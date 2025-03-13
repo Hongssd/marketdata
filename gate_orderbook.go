@@ -190,13 +190,15 @@ func (b *gateOrderBookBase) subscribeGateDepthMultiple(gateWsClient *mygateapi.W
 				if err != nil {
 					//直接存入深度缓存
 					b.saveGateDepthCache(result)
+					// log.Infof("缓存数据包: %s:%s thisFirstId:%d, thisLastId:%d \n上[%v]\n下[%v]",
+					// 	b.AccountType, result.Symbol, result.FirstId, result.LastId, result.Asks, result.Bids)
 					continue
 				}
 
 				//判断是否丢包
 				if currentLastId, ok := b.OrderBookBaseIdMap.Load(Symbol); ok {
 					if result.FirstId > currentLastId+1 {
-						//log.Warnf("发生丢包: %s:%s thisFirstId:%d, thisLastId:%d currentLastId:%d", b.AccountType, result.Symbol, result.FirstId, result.LastId, currentLastId)
+						// log.Warnf("发生丢包: %s:%s thisFirstId:%d, thisLastId:%d currentLastId:%d", b.AccountType, result.Symbol, result.FirstId, result.LastId, currentLastId)
 						//清空相关数据
 						b.OrderBookReadyUpdateIdMap.Delete(Symbol)
 						b.OrderBookMap.Delete(Symbol)
@@ -212,7 +214,8 @@ func (b *gateOrderBookBase) subscribeGateDepthMultiple(gateWsClient *mygateapi.W
 						}()
 						continue
 					} else {
-						//log.Infof("正常数据包: %s:%s thisFirstId:%d, thisLastId:%d currentLastId:%d", b.AccountType, result.Symbol, result.FirstId, result.LastId, currentLastId)
+						// log.Infof("正常数据包: %s:%s currentLastId:%d thisFirstId:%d, thisLastId:%d \n上[%v]\n下[%v]",
+						// 	b.AccountType, result.Symbol, currentLastId, result.FirstId, result.LastId, result.Asks, result.Bids)
 					}
 				}
 
@@ -243,7 +246,7 @@ func (b *gateOrderBookBase) subscribeGateDepthMultiple(gateWsClient *mygateapi.W
 	}()
 
 	go func() {
-		//log.Info("订阅成功, 开始初始化深度池...")
+		// log.Infof("[%s#%s] 订阅成功, 开始初始化深度池... %v", b.Exchange, b.AccountType, symbols)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 		defer cancel()
 		// 创建一个新的Group
@@ -350,6 +353,8 @@ func (b *gateOrderBookBase) initGateDepthOrderBook(Symbol string) error {
 		orderBook = NewOrderBook()
 		b.OrderBookRBTreeMap.Store(Symbol, orderBook)
 	}
+	// var baseId int64
+	// var baseDepth interface{}
 	switch b.AccountType {
 	case GATE_SPOT:
 		//重新初始化
@@ -380,6 +385,8 @@ func (b *gateOrderBookBase) initGateDepthOrderBook(Symbol string) error {
 			orderBook.PutAsk(p.InexactFloat64(), q.InexactFloat64())
 		}
 		b.OrderBookBaseIdMap.Store(Symbol, depth.ID)
+		// baseId = depth.ID
+		// baseDepth = depth
 	case GATE_FUTURES:
 		//重新初始化
 		res, err := mygateapi.NewRestClient("", "").PublicRestClient().
@@ -404,6 +411,8 @@ func (b *gateOrderBookBase) initGateDepthOrderBook(Symbol string) error {
 
 		}
 		b.OrderBookBaseIdMap.Store(Symbol, depth.Id)
+		// baseId = depth.Id
+		// baseDepth = depth
 	case GATE_DELIVERY:
 		//重新初始化
 		res, err := mygateapi.NewRestClient("", "").PublicRestClient().
@@ -427,7 +436,11 @@ func (b *gateOrderBookBase) initGateDepthOrderBook(Symbol string) error {
 			orderBook.PutAsk(p.InexactFloat64(), q.InexactFloat64())
 		}
 		b.OrderBookBaseIdMap.Store(Symbol, depth.ID)
+		// baseId = depth.ID
+		// baseDepth = depth
 	}
+
+	// log.Infof("[%s#%s] 初始化深度成功: %s ID[%d]\n深度[%v]", b.Exchange, b.AccountType, Symbol, baseId, baseDepth)
 
 	//log.Info(b.OrderBookBaseIdMap.Load(Symbol))
 	//log.Info(b.OrderBookReadyUpdateIdMap.Load(Symbol))
@@ -458,62 +471,94 @@ func (b *gateOrderBookBase) saveGateDepthOrderBookFromCache(Symbol string) error
 		b.OrderBookCacheMap.Store(Symbol, cacheMap)
 	}
 
-	//按照LowerU排序
-	var cacheList []mygateapi.WsOrderBook
-	cacheMap.Range(func(k int64, v *mygateapi.WsOrderBook) bool {
-		cacheList = append(cacheList, *v)
-		return true
-	})
-	sort.Sort(SortGateWsOrderBookSlice(cacheList))
-
-	//log.Warn(cacheList)
-	for len(cacheList) == 0 {
-		time.Sleep(100 * time.Millisecond)
+	//从Map中重新读取缓存
+	reloadCacheList := func() []mygateapi.WsOrderBook {
+		var targetCacheList []mygateapi.WsOrderBook
+		var cacheList []mygateapi.WsOrderBook
 		cacheMap.Range(func(k int64, v *mygateapi.WsOrderBook) bool {
 			cacheList = append(cacheList, *v)
 			return true
 		})
 		sort.Sort(SortGateWsOrderBookSlice(cacheList))
+		targetCacheList = []mygateapi.WsOrderBook{}
+		for index, v := range cacheList {
+			if v.FirstId <= baseId+1 && v.LastId >= baseId+1 || v.FirstId > baseId {
+				targetCacheList = cacheList[index:]
+				break
+			}
+		}
+		return targetCacheList
 	}
 
-	//若最小的缓存都比当前的baseId大，则等待1秒后需要重新请求rest接口
-	for len(cacheList) > 0 && cacheList[0].FirstId > baseId {
+	targetCacheList := reloadCacheList()
+
+	for len(targetCacheList) == 0 {
+		// log.Infof("[%s#%s] 缓存列表为空 等待100毫秒后重新获取缓存列表: %v", b.Exchange, b.AccountType, targetCacheList)
+		time.Sleep(100 * time.Millisecond)
+		targetCacheList = reloadCacheList()
+	}
+
+	ids := []string{}
+	for _, v := range targetCacheList {
+		ids = append(ids, fmt.Sprintf("%d->%d", v.FirstId, v.LastId))
+	}
+	// log.Info("targetCacheList: ", ids)
+
+	//若最小的缓存都比当前的baseId大，则等待500毫秒后需要初始化深度
+	for targetCacheList[0].FirstId > baseId+1 {
+
+		// log.Infof("[%s#%s] 最小的缓存都比当前的baseId大 等待500毫秒后重新初始化深度: %s ID[%d]", b.Exchange, b.AccountType, Symbol, baseId)
+		// oldBaseId := baseId
 		time.Sleep(500 * time.Millisecond)
 		err := b.initGateDepthOrderBook(Symbol)
 		if err != nil {
 			return err
 		}
 		baseId, _ = b.OrderBookBaseIdMap.Load(Symbol)
-		//log.Warn(baseId)
+		// log.Infof("[%s#%s] 重新初始化深度成功: %s ID[%d -> %d]", b.Exchange, b.AccountType, Symbol, oldBaseId, baseId)
+		targetCacheList = reloadCacheList()
+		for len(targetCacheList) == 0 {
+			time.Sleep(100 * time.Millisecond)
+			targetCacheList = reloadCacheList()
+		}
+		ids := []string{}
+		for _, v := range targetCacheList {
+			ids = append(ids, fmt.Sprintf("%d->%d", v.FirstId, v.LastId))
+		}
+		// log.Info("重新获取缓存列表:", ids)
 	}
 
 	//若最大的缓存都比当前的baseId小，则等待100毫秒后重新读取缓存
-	for len(cacheList) > 0 && cacheList[len(cacheList)-1].LastId < baseId {
+	for targetCacheList[len(targetCacheList)-1].LastId < baseId {
 		time.Sleep(100 * time.Millisecond)
-		cacheList = []mygateapi.WsOrderBook{}
-		cacheMap, _ = b.OrderBookCacheMap.Load(Symbol)
-		cacheMap.Range(func(k int64, v *mygateapi.WsOrderBook) bool {
-			cacheList = append(cacheList, *v)
-			return true
-		})
-		sort.Sort(SortGateWsOrderBookSlice(cacheList))
-		//log.Warn(cacheList)
+		targetCacheList = reloadCacheList()
 	}
+	// //若缓存不连续，则打印错误日志，并将缓存清空
+	// preLastId := int64(0)
+	// for i := 0; i < len(targetCacheList); i++ {
+	// 	if i == 0 {
+	// 		preLastId = targetCacheList[i].LastId
+	// 		log.Infof("[%s] rest基准id[%d] 首个目标缓存开始id[%d] 结束ID[%d]", Symbol, baseId, targetCacheList[i].FirstId, targetCacheList[i].LastId)
+	// 		continue
+	// 	}
+	// 	if targetCacheList[i].FirstId != preLastId+1 {
+	// 		err := fmt.Errorf("[%s]目标缓存不连续: %d, %d", Symbol, targetCacheList[i].FirstId, preLastId+1)
+	// 		log.Error(err)
+	// 		b.OrderBookCacheMap.Delete(Symbol)
+	// 		b.OrderBookRBTreeMap.Delete(Symbol)
+	// 		b.OrderBookBaseIdMap.Delete(Symbol)
+	// 		b.OrderBookReadyUpdateIdMap.Delete(Symbol)
+	// 		b.OrderBookMap.Delete(Symbol)
+	// 		break
+	// 	}
+	// 	preLastId = targetCacheList[i].LastId
+	// }
+	// log.Infof("[%s]目标缓存连续 rest基准ID[%d] 缓存起始ID[%d->%d] 缓存结束ID:[%d->%d]", Symbol, baseId,
+	// 	targetCacheList[0].FirstId, targetCacheList[0].LastId,
+	// 	targetCacheList[len(targetCacheList)-1].FirstId, targetCacheList[len(targetCacheList)-1].LastId,
+	// )
 
-	// log.Info(baseId)
-	// log.Info(len(cacheList))
-	targetCacheList := []mygateapi.WsOrderBook{}
-	for index, v := range cacheList {
-		if v.FirstId <= baseId+1 && v.LastId >= baseId+1 {
-			err := b.saveGateDepthOrderBook(v)
-			if err != nil {
-				log.Error(err)
-				return err
-			}
-			targetCacheList = cacheList[index:]
-			break
-		}
-	}
+	// targetCacheList = reloadCacheList()
 	// log.Info(len(targetCacheList))
 	for _, v := range targetCacheList {
 		err := b.saveGateDepthOrderBook(v)
@@ -565,6 +610,7 @@ func (b *gateOrderBookBase) saveGateDepthOrderBook(result mygateapi.WsOrderBook)
 			q, _ := decimal.NewFromString(bid.Quantity)
 			if q.IsZero() {
 				orderBook.RemoveBid(p.InexactFloat64())
+				orderBook.RemoveAsk(p.InexactFloat64())
 				continue
 			}
 			orderBook.PutBid(p.InexactFloat64(), q.InexactFloat64())
@@ -578,6 +624,7 @@ func (b *gateOrderBookBase) saveGateDepthOrderBook(result mygateapi.WsOrderBook)
 			p, _ := decimal.NewFromString(ask.Price)
 			q, _ := decimal.NewFromString(ask.Quantity)
 			if q.IsZero() {
+				orderBook.RemoveBid(p.InexactFloat64())
 				orderBook.RemoveAsk(p.InexactFloat64())
 				continue
 			}

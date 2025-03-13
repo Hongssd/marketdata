@@ -80,11 +80,11 @@ func (ob *OrderBook) ClearAll() {
 }
 
 func (ob *OrderBook) LoadToDepth(depth *Depth, level int) (*Depth, error) {
-	//if level > ob.Bids.Size() || level > ob.Asks.Size() {
-	//	//err := fmt.Errorf("[%s][%s][%s]level %d is larger than orderbook size", depth.Exchange, depth.AccountType, depth.Symbol, level)
-	//	//return nil, err
-	//	//log.Infof("[%s][%s][%s]level %d is larger than orderbook size", depth.Exchange, depth.AccountType, depth.Symbol, level)
-	//}
+	// if level > ob.Bids.Size() || level > ob.Asks.Size() {
+	// 	//err := fmt.Errorf("[%s][%s][%s]level %d is larger than orderbook size", depth.Exchange, depth.AccountType, depth.Symbol, level)
+	// 	//return nil, err
+	// 	//log.Infof("[%s][%s][%s]level %d is larger than orderbook size", depth.Exchange, depth.AccountType, depth.Symbol, level)
+	// }
 
 	newDepth := &Depth{
 		Exchange:    depth.Exchange,
