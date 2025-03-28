@@ -1,8 +1,6 @@
 package marketdata
 
 import (
-	"math"
-
 	"github.com/Hongssd/mybinanceapi"
 	"github.com/Hongssd/mygateapi"
 	"github.com/shopspring/decimal"
