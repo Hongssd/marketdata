@@ -323,7 +323,7 @@ func (b *gateOrderBookBase) initGateDepthFunc(symbol string) error {
 	}
 	err := b.initGateDepthOrderBook(symbol)
 	for err != nil {
-		log.Error(err, symbol)
+		log.Error(err)
 		time.Sleep(time.Second * 1)
 		log.Info("重新初始化Gate深度: ", symbol)
 		err = b.initGateDepthOrderBook(symbol)
