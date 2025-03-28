@@ -196,7 +196,7 @@ func (b *gateOrderBookBase) subscribeGateDepthMultiple(gateWsClient *mygateapi.W
 				//判断是否丢包
 				if currentLastId, ok := b.OrderBookBaseIdMap.Load(Symbol); ok {
 					if result.FirstId > currentLastId+1 {
-						//log.Warnf("发生丢包: %s:%s thisFirstId:%d, thisLastId:%d currentLastId:%d", b.AccountType, result.Symbol, result.FirstId, result.LastId, currentLastId)
+						log.Warnf("发生丢包: %s:%s thisFirstId:%d, thisLastId:%d currentLastId:%d", b.AccountType, result.Symbol, result.FirstId, result.LastId, currentLastId)
 						//清空相关数据
 						b.OrderBookReadyUpdateIdMap.Delete(Symbol)
 						b.OrderBookMap.Delete(Symbol)
@@ -212,7 +212,7 @@ func (b *gateOrderBookBase) subscribeGateDepthMultiple(gateWsClient *mygateapi.W
 						}()
 						continue
 					} else {
-						//log.Infof("正常数据包: %s:%s thisFirstId:%d, thisLastId:%d currentLastId:%d", b.AccountType, result.Symbol, result.FirstId, result.LastId, currentLastId)
+						// log.Infof("正常数据包: %s:%s thisFirstId:%d, thisLastId:%d currentLastId:%d", b.AccountType, result.Symbol, result.FirstId, result.LastId, currentLastId)
 					}
 				}
 
@@ -320,7 +320,7 @@ func (b *gateOrderBookBase) initGateDepthFunc(symbol string) error {
 	}
 	err := b.initGateDepthOrderBook(symbol)
 	for err != nil {
-		// log.Error(err)
+		log.Error(err, symbol)
 		time.Sleep(time.Second * 1)
 		log.Info("重新初始化Gate深度: ", symbol)
 		err = b.initGateDepthOrderBook(symbol)

@@ -1,6 +1,8 @@
 package marketdata
 
 import (
+	"math"
+
 	"github.com/Hongssd/mybinanceapi"
 	"github.com/Hongssd/mygateapi"
 	"github.com/shopspring/decimal"
@@ -20,7 +22,15 @@ type Depth struct {
 func (d *Depth) WeightedAvgPrice(level int) float64 {
 	var sumPrice float64
 	var sumQuantity float64
-	for i := 0; i < level; i++ {
+
+	min := func(a, b int) int {
+		if a < b {
+			return a
+		}
+		return b
+	}
+
+	for i := 0; i < min(level, len(d.Bids)); i++ {
 		sumPrice += d.Bids[i].Price * d.Bids[i].Quantity
 		sumQuantity += d.Bids[i].Quantity
 	}
