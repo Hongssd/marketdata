@@ -17,22 +17,20 @@ type Depth struct {
 	Asks        []PriceLevel `json:"asks"`
 }
 
+// 买卖盘口根据档位计算加权均价
 func (d *Depth) WeightedAvgPrice(level int) float64 {
-	var sumPrice float64
-	var sumQuantity float64
-
-	min := func(a, b int) int {
-		if a < b {
-			return a
-		}
-		return b
-	}
-
-	for i := 0; i < min(level, len(d.Bids)); i++ {
-		sumPrice += d.Bids[i].Price * d.Bids[i].Quantity
-		sumQuantity += d.Bids[i].Quantity
-	}
-	return sumPrice / sumQuantity
+    var sumPriceWeight decimal.Decimal
+    var sumQuantity decimal.Decimal
+    if len(d.Bids) < level || len(d.Asks) < level {
+        return 0
+    }
+    for i := 0; i < level; i++ {
+        sumPriceWeight = sumPriceWeight.Add(decimal.NewFromFloat(d.Bids[i].Price).Mul(decimal.NewFromFloat(d.Bids[i].Quantity)))
+        sumPriceWeight = sumPriceWeight.Add(decimal.NewFromFloat(d.Asks[i].Price).Mul(decimal.NewFromFloat(d.Asks[i].Quantity)))
+        sumQuantity = sumQuantity.Add(decimal.NewFromFloat(d.Bids[i].Quantity))
+        sumQuantity = sumQuantity.Add(decimal.NewFromFloat(d.Asks[i].Quantity))
+    }
+    return sumPriceWeight.Div(sumQuantity).InexactFloat64()
 }
 
 type PriceLevel struct {
