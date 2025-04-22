@@ -26,8 +26,10 @@ func (gm *GateMarketData) init() error {
 			log.Error(err)
 		}
 		//丢弃高波动均值影响
-		if math.Abs(float64(serverTimeDelta)) > math.Abs(float64(3*gm.ServerTimeDelta)) {
-			return
+		if gm.ServerTimeDeltaTimes > 10 && gm.ServerTimeDelta != 0 {
+			if math.Abs(float64(serverTimeDelta)) > math.Abs(float64(3*gm.ServerTimeDelta)) {
+				return
+			}
 		}
 		gm.ServerTimeDeltaTimes++
 		gm.ServerTimeDeltaSum += serverTimeDelta

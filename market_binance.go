@@ -39,8 +39,10 @@ func (bm *BinanceMarketData) init() error {
 				log.Error(err)
 			}
 			//丢弃高波动均值影响
-			if math.Abs(float64(serverTimeDelta)) > math.Abs(float64(2*bm.spotServerTimeDelta)) {
-				return
+			if bm.spotServerTimeDeltaTimes > 10 && bm.spotServerTimeDelta != 0 {
+				if math.Abs(float64(serverTimeDelta)) > math.Abs(float64(2*bm.spotServerTimeDelta)) {
+					return
+				}
 			}
 			bm.spotServerTimeDeltaTimes++
 			bm.spotServerTimeDeltaSum += serverTimeDelta
@@ -53,8 +55,10 @@ func (bm *BinanceMarketData) init() error {
 				log.Error(err)
 			}
 			//丢弃高波动均值影响
-			if math.Abs(float64(serverTimeDelta)) > math.Abs(float64(2*bm.futureServerTimeDelta)) {
-				return
+			if bm.futureServerTimeDeltaTimes > 10 && bm.futureServerTimeDelta != 0 {
+				if math.Abs(float64(serverTimeDelta)) > math.Abs(float64(2*bm.futureServerTimeDelta)) {
+					return
+				}
 			}
 			bm.futureServerTimeDeltaTimes++
 			bm.futureServerTimeDeltaSum += serverTimeDelta
@@ -67,8 +71,10 @@ func (bm *BinanceMarketData) init() error {
 				log.Error(err)
 			}
 			//丢弃高波动均值影响
-			if math.Abs(float64(serverTimeDelta)) > math.Abs(float64(3*bm.swapServerTimeDelta)) {
-				return
+			if bm.swapServerTimeDeltaTimes > 10 && bm.swapServerTimeDelta != 0 {
+				if math.Abs(float64(serverTimeDelta)) > math.Abs(float64(3*bm.swapServerTimeDelta)) {
+					return
+				}
 			}
 			bm.swapServerTimeDeltaTimes++
 			bm.swapServerTimeDeltaSum += serverTimeDelta

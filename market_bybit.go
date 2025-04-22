@@ -25,8 +25,10 @@ func (bm *BybitMarketData) init() error {
 			log.Error(err)
 		}
 		//丢弃高波动均值影响
-		if math.Abs(float64(serverTimeDelta)) > math.Abs(float64(3*bm.ServerTimeDelta)) {
-			return
+		if bm.ServerTimeDeltaTimes > 10 && bm.ServerTimeDelta != 0 {
+			if math.Abs(float64(serverTimeDelta)) > math.Abs(float64(3*bm.ServerTimeDelta)) {
+				return
+			}
 		}
 		bm.ServerTimeDeltaTimes++
 		bm.ServerTimeDeltaSum += serverTimeDelta

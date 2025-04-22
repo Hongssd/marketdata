@@ -77,8 +77,10 @@ func (om *OkxMarketData) init() error {
 			return
 		}
 		//丢弃高波动均值影响
-		if math.Abs(float64(serverTimeDelta)) > math.Abs(float64(3*om.serverTimeDelta)) {
-			return
+		if om.serverTimeDeltaTimes > 10 && om.serverTimeDelta != 0 {
+			if math.Abs(float64(serverTimeDelta)) > math.Abs(float64(3*om.serverTimeDelta)) {
+				return
+			}
 		}
 		om.serverTimeDeltaTimes++
 		om.serverTimeDeltaSum += serverTimeDelta
