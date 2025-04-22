@@ -1,6 +1,8 @@
 package marketdata
 
 import (
+	"math"
+
 	"github.com/Hongssd/myokxapi"
 	"github.com/robfig/cron/v3"
 )
@@ -72,6 +74,11 @@ func (om *OkxMarketData) init() error {
 		serverTimeDelta, err := OkxGetServerTimeDelta()
 		if err != nil {
 			log.Error(err)
+			return
+		}
+		//丢弃高波动均值影响
+		if math.Abs(float64(serverTimeDelta)) > math.Abs(float64(3*om.serverTimeDelta)) {
+			return
 		}
 		om.serverTimeDeltaTimes++
 		om.serverTimeDeltaSum += serverTimeDelta

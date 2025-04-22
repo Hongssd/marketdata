@@ -1,6 +1,7 @@
 package marketdata
 
 import (
+	"math"
 	"sync"
 
 	"github.com/Hongssd/mybinanceapi"
@@ -37,6 +38,10 @@ func (bm *BinanceMarketData) init() error {
 			if err != nil {
 				log.Error(err)
 			}
+			//丢弃高波动均值影响
+			if math.Abs(float64(serverTimeDelta)) > math.Abs(float64(2*bm.spotServerTimeDelta)) {
+				return
+			}
 			bm.spotServerTimeDeltaTimes++
 			bm.spotServerTimeDeltaSum += serverTimeDelta
 			bm.spotServerTimeDelta = bm.spotServerTimeDeltaSum / bm.spotServerTimeDeltaTimes
@@ -47,6 +52,10 @@ func (bm *BinanceMarketData) init() error {
 			if err != nil {
 				log.Error(err)
 			}
+			//丢弃高波动均值影响
+			if math.Abs(float64(serverTimeDelta)) > math.Abs(float64(2*bm.futureServerTimeDelta)) {
+				return
+			}
 			bm.futureServerTimeDeltaTimes++
 			bm.futureServerTimeDeltaSum += serverTimeDelta
 			bm.futureServerTimeDelta = bm.futureServerTimeDeltaSum / bm.futureServerTimeDeltaTimes
@@ -56,6 +65,10 @@ func (bm *BinanceMarketData) init() error {
 			serverTimeDelta, err := BinanceGetServerTimeDelta(BINANCE_SWAP)
 			if err != nil {
 				log.Error(err)
+			}
+			//丢弃高波动均值影响
+			if math.Abs(float64(serverTimeDelta)) > math.Abs(float64(3*bm.swapServerTimeDelta)) {
+				return
 			}
 			bm.swapServerTimeDeltaTimes++
 			bm.swapServerTimeDeltaSum += serverTimeDelta

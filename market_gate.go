@@ -1,6 +1,8 @@
 package marketdata
 
 import (
+	"math"
+
 	"github.com/Hongssd/mygateapi"
 	"github.com/robfig/cron/v3"
 )
@@ -22,6 +24,10 @@ func (gm *GateMarketData) init() error {
 		serverTimeDelta, err := GateGetServerTimeDelta()
 		if err != nil {
 			log.Error(err)
+		}
+		//丢弃高波动均值影响
+		if math.Abs(float64(serverTimeDelta)) > math.Abs(float64(3*gm.ServerTimeDelta)) {
+			return
 		}
 		gm.ServerTimeDeltaTimes++
 		gm.ServerTimeDeltaSum += serverTimeDelta

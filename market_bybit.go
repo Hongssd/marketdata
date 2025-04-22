@@ -1,6 +1,8 @@
 package marketdata
 
 import (
+	"math"
+
 	"github.com/Hongssd/mybybitapi"
 	"github.com/robfig/cron/v3"
 )
@@ -21,6 +23,10 @@ func (bm *BybitMarketData) init() error {
 		serverTimeDelta, err := BybitGetServerTimeDelta()
 		if err != nil {
 			log.Error(err)
+		}
+		//丢弃高波动均值影响
+		if math.Abs(float64(serverTimeDelta)) > math.Abs(float64(3*bm.ServerTimeDelta)) {
+			return
 		}
 		bm.ServerTimeDeltaTimes++
 		bm.ServerTimeDeltaSum += serverTimeDelta
