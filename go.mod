@@ -5,6 +5,7 @@ go 1.19
 require (
 	github.com/Hongssd/mybinanceapi v1.7.8
 	github.com/Hongssd/mybybitapi v0.0.7
+	github.com/Hongssd/mygateapi v0.0.3
 	github.com/Hongssd/myokxapi v0.4.4
 	github.com/emirpasic/gods v1.18.1
 	github.com/json-iterator/go v1.1.12
@@ -15,7 +16,6 @@ require (
 )
 
 require (
-	github.com/Hongssd/mygateapi v0.0.3 // indirect
 	github.com/bwmarrin/snowflake v0.3.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
