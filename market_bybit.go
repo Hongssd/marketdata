@@ -7,7 +7,9 @@ import (
 
 type BybitMarketData struct {
 	mybybitapi.Client
-	ServerTimeDelta int64
+	ServerTimeDelta      int64
+	ServerTimeDeltaTimes int64
+	ServerTimeDeltaSum   int64
 	*BybitKline
 	*BybitOrderBook
 	*BybitAggTrade
@@ -20,7 +22,9 @@ func (bm *BybitMarketData) init() error {
 		if err != nil {
 			log.Error(err)
 		}
-		bm.ServerTimeDelta = serverTimeDelta
+		bm.ServerTimeDeltaTimes++
+		bm.ServerTimeDeltaSum += serverTimeDelta
+		bm.ServerTimeDelta = bm.ServerTimeDeltaSum / bm.ServerTimeDeltaTimes
 	}
 	refresh()
 

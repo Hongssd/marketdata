@@ -7,7 +7,9 @@ import (
 
 type GateMarketData struct {
 	mygateapi.Client
-	ServerTimeDelta int64
+	ServerTimeDelta      int64
+	ServerTimeDeltaTimes int64
+	ServerTimeDeltaSum   int64
 	*GateOrderBook
 	*GateKline
 	*GateDepth
@@ -21,7 +23,9 @@ func (gm *GateMarketData) init() error {
 		if err != nil {
 			log.Error(err)
 		}
-		gm.ServerTimeDelta = serverTimeDelta
+		gm.ServerTimeDeltaTimes++
+		gm.ServerTimeDeltaSum += serverTimeDelta
+		gm.ServerTimeDelta = gm.ServerTimeDeltaSum / gm.ServerTimeDeltaTimes
 	}
 	refresh()
 

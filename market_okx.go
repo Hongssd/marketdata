@@ -7,7 +7,9 @@ import (
 
 type OkxMarketData struct {
 	myokxapi.Client
-	serverTimeDelta int64
+	serverTimeDelta      int64
+	serverTimeDeltaTimes int64
+	serverTimeDeltaSum   int64
 	*OkxOrderBook
 	*OkxKline
 	*OkxOption
@@ -71,7 +73,9 @@ func (om *OkxMarketData) init() error {
 		if err != nil {
 			log.Error(err)
 		}
-		om.serverTimeDelta = serverTimeDelta
+		om.serverTimeDeltaTimes++
+		om.serverTimeDeltaSum += serverTimeDelta
+		om.serverTimeDelta = om.serverTimeDeltaSum / om.serverTimeDeltaTimes
 	}
 	refresh()
 

@@ -12,6 +12,14 @@ type BinanceMarketData struct {
 	spotServerTimeDelta   int64
 	futureServerTimeDelta int64
 	swapServerTimeDelta   int64
+	//增加平均值机制
+	spotServerTimeDeltaTimes   int64
+	futureServerTimeDeltaTimes int64
+	swapServerTimeDeltaTimes   int64
+
+	spotServerTimeDeltaSum   int64
+	futureServerTimeDeltaSum int64
+	swapServerTimeDeltaSum   int64
 	*BinanceOrderBook
 	*BinanceKline
 	*BinanceDepth
@@ -29,7 +37,9 @@ func (bm *BinanceMarketData) init() error {
 			if err != nil {
 				log.Error(err)
 			}
-			bm.spotServerTimeDelta = serverTimeDelta
+			bm.spotServerTimeDeltaTimes++
+			bm.spotServerTimeDeltaSum += serverTimeDelta
+			bm.spotServerTimeDelta = bm.spotServerTimeDeltaSum / bm.spotServerTimeDeltaTimes
 		}()
 		go func() {
 			defer wg.Done()
@@ -37,7 +47,9 @@ func (bm *BinanceMarketData) init() error {
 			if err != nil {
 				log.Error(err)
 			}
-			bm.futureServerTimeDelta = serverTimeDelta
+			bm.futureServerTimeDeltaTimes++
+			bm.futureServerTimeDeltaSum += serverTimeDelta
+			bm.futureServerTimeDelta = bm.futureServerTimeDeltaSum / bm.futureServerTimeDeltaTimes
 		}()
 		go func() {
 			defer wg.Done()
@@ -45,7 +57,9 @@ func (bm *BinanceMarketData) init() error {
 			if err != nil {
 				log.Error(err)
 			}
-			bm.swapServerTimeDelta = serverTimeDelta
+			bm.swapServerTimeDeltaTimes++
+			bm.swapServerTimeDeltaSum += serverTimeDelta
+			bm.swapServerTimeDelta = bm.swapServerTimeDeltaSum / bm.swapServerTimeDeltaTimes
 		}()
 		wg.Wait()
 	}
@@ -150,6 +164,7 @@ func (bm *BinanceMarketData) GetServerTimeDelta(accountType BinanceAccountType) 
 	case BINANCE_FUTURE:
 		return bm.futureServerTimeDelta
 	case BINANCE_SWAP:
+
 		return bm.swapServerTimeDelta
 	default:
 		return 0
