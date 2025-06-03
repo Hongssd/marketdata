@@ -3,9 +3,10 @@ package marketdata
 import (
 	"errors"
 	"fmt"
-	"github.com/Hongssd/myokxapi"
 	"sync/atomic"
 	"time"
+
+	"github.com/Hongssd/myokxapi"
 )
 
 type OkxOption struct {

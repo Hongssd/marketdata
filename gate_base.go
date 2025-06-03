@@ -29,7 +29,7 @@ func (b *GateWsClientBase) GetCurrentOrNewWsClient(accountType GateAccountType) 
 		case GATE_FUTURES:
 			wsClient = &mygateapi.NewFuturesWsStreamClient(mygateapi.NewRestClient("", ""), mygateapi.USDT_CONTRACT).WsStreamClient
 		case GATE_DELIVERY:
-			wsClient = &mygateapi.NewDeliveryStreamClient(mygateapi.NewRestClient("", ""), mygateapi.USDT_CONTRACT).WsStreamClient
+			wsClient = &mygateapi.NewDeliveryWsStreamClient(mygateapi.NewRestClient("", ""), mygateapi.USDT_CONTRACT).WsStreamClient
 		}
 		//开启链接
 		err = wsClient.OpenConn()
