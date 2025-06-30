@@ -12,6 +12,7 @@ type OkxMarketData struct {
 	serverTimeDelta      int64
 	serverTimeDeltaTimes int64
 	serverTimeDeltaSum   int64
+	serverTimeDeltaCron  *cron.Cron
 	*OkxOrderBook
 	*OkxKline
 	*OkxOption
@@ -96,6 +97,7 @@ func (om *OkxMarketData) init() error {
 	}
 
 	c.Start()
+	om.serverTimeDeltaCron = c
 	return nil
 }
 
@@ -178,4 +180,10 @@ func (o *OkxMarketData) GetBusinessCurrentOrNewWsClient(perConnSubNum int64, WsC
 		}
 	}
 	return wsClient, nil
+}
+
+func (om *OkxMarketData) Close() {
+	if om.serverTimeDeltaCron != nil {
+		om.serverTimeDeltaCron.Stop()
+	}
 }

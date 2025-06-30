@@ -12,6 +12,7 @@ type BybitMarketData struct {
 	ServerTimeDelta      int64
 	ServerTimeDeltaTimes int64
 	ServerTimeDeltaSum   int64
+	serverTimeDeltaCron  *cron.Cron
 	*BybitKline
 	*BybitOrderBook
 	*BybitAggTrade
@@ -43,6 +44,7 @@ func (bm *BybitMarketData) init() error {
 		return err
 	}
 	c.Start()
+	bm.serverTimeDeltaCron = c
 	return nil
 }
 
@@ -114,4 +116,10 @@ func (bm *BybitMarketData) InitBybitAggTrade(config BybitAggTradeConfig) error {
 // 获取当前服务器时间差
 func (bm *BybitMarketData) GetServerTimeDelta() int64 {
 	return bm.ServerTimeDelta
+}
+
+func (bm *BybitMarketData) Close() {
+	if bm.serverTimeDeltaCron != nil {
+		bm.serverTimeDeltaCron.Stop()
+	}
 }

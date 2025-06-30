@@ -21,6 +21,8 @@ type BinanceMarketData struct {
 	spotServerTimeDeltaSum   int64
 	futureServerTimeDeltaSum int64
 	swapServerTimeDeltaSum   int64
+
+	serverTimeDeltaCron *cron.Cron
 	*BinanceOrderBook
 	*BinanceKline
 	*BinanceDepth
@@ -91,6 +93,7 @@ func (bm *BinanceMarketData) init() error {
 		return err
 	}
 	c.Start()
+	bm.serverTimeDeltaCron = c
 	return nil
 }
 
@@ -187,5 +190,11 @@ func (bm *BinanceMarketData) GetServerTimeDelta(accountType BinanceAccountType) 
 		return bm.swapServerTimeDelta
 	default:
 		return 0
+	}
+}
+
+func (bm *BinanceMarketData) Close() {
+	if bm.serverTimeDeltaCron != nil {
+		bm.serverTimeDeltaCron.Stop()
 	}
 }

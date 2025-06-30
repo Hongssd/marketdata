@@ -12,6 +12,7 @@ type GateMarketData struct {
 	ServerTimeDelta      int64
 	ServerTimeDeltaTimes int64
 	ServerTimeDeltaSum   int64
+	serverTimeDeltaCron  *cron.Cron
 	*GateOrderBook
 	*GateKline
 	*GateDepth
@@ -44,6 +45,7 @@ func (gm *GateMarketData) init() error {
 		return err
 	}
 	c.Start()
+	gm.serverTimeDeltaCron = c
 	return nil
 }
 
@@ -131,4 +133,10 @@ func (bm *GateMarketData) InitGateAggTrade(config GateAggTradeConfig) error {
 // 获取当前服务器时间差
 func (gm *GateMarketData) GetServerTimeDelta() int64 {
 	return gm.ServerTimeDelta
+}
+
+func (gm *GateMarketData) Close() {
+	if gm.serverTimeDeltaCron != nil {
+		gm.serverTimeDeltaCron.Stop()
+	}
 }

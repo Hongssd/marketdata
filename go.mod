@@ -3,10 +3,10 @@ module github.com/Hongssd/marketdata
 go 1.19
 
 require (
-	github.com/Hongssd/mybinanceapi v1.7.8
-	github.com/Hongssd/mybybitapi v0.0.7
-	github.com/Hongssd/mygateapi v0.1.5
-	github.com/Hongssd/myokxapi v0.4.4
+	github.com/Hongssd/mybinanceapi v1.8.5
+	github.com/Hongssd/mybybitapi v0.1.7
+	github.com/Hongssd/mygateapi v0.2.2
+	github.com/Hongssd/myokxapi v0.4.7
 	github.com/emirpasic/gods v1.18.1
 	github.com/json-iterator/go v1.1.12
 	github.com/robfig/cron/v3 v3.0.1
