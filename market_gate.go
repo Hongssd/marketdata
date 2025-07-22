@@ -17,6 +17,7 @@ type GateMarketData struct {
 	*GateKline
 	*GateDepth
 	*GateAggTrade
+	*GateTickers
 }
 
 func (gm *GateMarketData) init() error {
@@ -126,6 +127,22 @@ func (bm *GateMarketData) InitGateAggTrade(config GateAggTradeConfig) error {
 	b.DeliveryAggTrade.AccountType = GATE_DELIVERY
 	b.DeliveryAggTrade.parent = b
 	bm.GateAggTrade = b
+	b.parent = bm
+	return nil
+}
+
+func (bm *GateMarketData) InitGateTickers(config GateTickersConfig) error {
+	b := &GateTickers{}
+	b.SpotTickers = b.newGateTickersBase(config.SpotConfig)
+	b.SpotTickers.AccountType = GATE_SPOT
+	b.SpotTickers.parent = b
+	b.FuturesTickers = b.newGateTickersBase(config.FuturesConfig)
+	b.FuturesTickers.AccountType = GATE_FUTURES
+	b.FuturesTickers.parent = b
+	b.DeliveryTickers = b.newGateTickersBase(config.DeliveryConfig)
+	b.DeliveryTickers.AccountType = GATE_DELIVERY
+	b.DeliveryTickers.parent = b
+	bm.GateTickers = b
 	b.parent = bm
 	return nil
 }
