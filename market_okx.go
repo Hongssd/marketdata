@@ -18,6 +18,7 @@ type OkxMarketData struct {
 	*OkxOption
 	*OkxAggTrade
 	*OkxMarkPrice
+	*OkxTickers
 }
 
 func NewOkxMarketDataDefault() (*OkxMarketData, error) {
@@ -60,6 +61,11 @@ func (om *OkxMarketData) InitOkxAggTrade(config OkxAggTradeConfig) error {
 func (om *OkxMarketData) InitOkxMarkPrice(config OkxMarkPriceConfig) error {
 	o := om.newOkxMarkPrice(config)
 	om.OkxMarkPrice = o
+	return nil
+}
+func (om *OkxMarketData) InitOkxTickers(config OkxTickersConfig) error {
+	o := om.newOkxTickers(config)
+	om.OkxTickers = o
 	return nil
 }
 

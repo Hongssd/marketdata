@@ -2,9 +2,10 @@ package marketdata
 
 import (
 	"fmt"
-	"github.com/Hongssd/myokxapi"
 	"sync/atomic"
 	"time"
+
+	"github.com/Hongssd/myokxapi"
 )
 
 type OkxMarkPrice struct {
@@ -130,11 +131,17 @@ func (o *OkxMarkPrice) subscribeOkxMarkPriceMultiple(okxWsClient *myokxapi.Publi
 					callback(nil, err)
 				}
 			case result := <-okxSub.ResultChan():
+				now := time.Now().UnixMilli()
+				targetTs := stringToInt64(result.Ts) + o.parent.serverTimeDelta
+				if targetTs > now {
+					targetTs = now
+				}
+
 				mp := &MarkPrice{
 					Exchange:  o.Exchange.String(),
 					Symbol:    result.InstId,
 					MarkPrice: stringToFloat64(result.MarkPx),
-					Timestamp: stringToInt64(result.Ts),
+					Timestamp: targetTs,
 				}
 				o.MarkPriceMap.Store(result.InstId, mp)
 				if callback != nil {
