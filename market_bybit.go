@@ -16,6 +16,7 @@ type BybitMarketData struct {
 	*BybitKline
 	*BybitOrderBook
 	*BybitAggTrade
+	*BybitTickers
 }
 
 func (bm *BybitMarketData) init() error {
@@ -109,6 +110,25 @@ func (bm *BybitMarketData) InitBybitAggTrade(config BybitAggTradeConfig) error {
 	b.InverseAggTrade.AccountType = BYBIT_INVERSE
 	b.InverseAggTrade.parent = b
 	bm.BybitAggTrade = b
+	b.parent = bm
+	return nil
+}
+
+func (bm *BybitMarketData) InitBybitTickers(config BybitTickersConfig) error {
+	b := &BybitTickers{}
+	b.SpotTickers = b.newBybitTickersBase(config.SpotConfig)
+	b.SpotTickers.AccountType = BYBIT_SPOT
+	b.SpotTickers.parent = b
+	b.LinearTickers = b.newBybitTickersBase(config.LinearConfig)
+	b.LinearTickers.AccountType = BYBIT_LINEAR
+	b.LinearTickers.parent = b
+	b.InverseTickers = b.newBybitTickersBase(config.InverseConfig)
+	b.InverseTickers.AccountType = BYBIT_INVERSE
+	b.InverseTickers.parent = b
+	b.OptionTickers = b.newBybitTickersBase(config.OptionConfig)
+	b.OptionTickers.AccountType = BYBIT_OPTION
+	b.OptionTickers.parent = b
+	bm.BybitTickers = b
 	b.parent = bm
 	return nil
 }
