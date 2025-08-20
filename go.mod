@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/Hongssd/mybinanceapi v1.8.7
 	github.com/Hongssd/mybybitapi v0.1.8
-	github.com/Hongssd/mygateapi v0.2.3
+	github.com/Hongssd/mygateapi v0.2.4
 	github.com/Hongssd/myokxapi v0.4.8
 	github.com/emirpasic/gods v1.18.1
 	github.com/json-iterator/go v1.1.12
