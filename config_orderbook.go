@@ -56,3 +56,98 @@ type GateOrderBookConfigBase struct {
 	InitOrderBookSize         int    //初始OrderBook档位
 	Level                     string //可选深度档位 100、50、20；20ms频率 只支持 20档位
 }
+
+var BinanceOrderBookConfigDefault = BinanceOrderBookConfig{
+	SpotConfig: BinanceOrderBookConfigBase{
+		USpeed:                    "100ms",
+		LimitRestCountPerMinute:   500,
+		PerConnSubNum:             20,
+		PerSubMaxLen:              20,
+		CallBackDepthLevel:        20,
+		CallBackDepthTimeoutMilli: 5000,
+		InitOrderBookSize:         100,
+	},
+	FutureConfig: BinanceOrderBookConfigBase{
+		USpeed:                    "100ms",
+		LimitRestCountPerMinute:   500,
+		PerConnSubNum:             20,
+		PerSubMaxLen:              20,
+		CallBackDepthLevel:        20,
+		CallBackDepthTimeoutMilli: 5000,
+		InitOrderBookSize:         100,
+	},
+	SwapConfig: BinanceOrderBookConfigBase{
+		USpeed:                    "100ms",
+		LimitRestCountPerMinute:   500,
+		PerConnSubNum:             20,
+		PerSubMaxLen:              20,
+		CallBackDepthLevel:        20,
+		CallBackDepthTimeoutMilli: 5000,
+		InitOrderBookSize:         100,
+	},
+}
+
+var OkxOrderBookConfigDefault = OkxOrderBookConfig{
+	WsBooksType:               myokxapi.WS_BOOKS_UPDATE_400_100MS,
+	PerConnSubNum:             20,
+	PerSubMaxLen:              20,
+	CallBackDepthLevel:        20,
+	CallBackDepthTimeoutMilli: 5000,
+}
+
+var BybitOrderBookConfigDefault = BybitOrderBookConfig{
+	SpotConfig: BybitOrderBookConfigBase{
+		PerConnSubNum:             20,
+		PerSubMaxLen:              20,
+		CallBackDepthLevel:        20,
+		CallBackDepthTimeoutMilli: 5000,
+		Level:                     "50",
+	},
+	LinearConfig: BybitOrderBookConfigBase{
+		PerConnSubNum:             20,
+		PerSubMaxLen:              20,
+		CallBackDepthLevel:        20,
+		CallBackDepthTimeoutMilli: 5000,
+		Level:                     "50",
+	},
+	InverseConfig: BybitOrderBookConfigBase{
+		PerConnSubNum:             20,
+		PerSubMaxLen:              20,
+		CallBackDepthLevel:        20,
+		CallBackDepthTimeoutMilli: 5000,
+		Level:                     "50",
+	},
+}
+
+var GateOrderBookConfigDefault = GateOrderBookConfig{
+	SpotConfig: GateOrderBookConfigBase{
+		USpeed:                    "100ms",
+		LimitRestCountPerMinute:   300,
+		PerConnSubNum:             20,
+		PerSubMaxLen:              20,
+		CallBackDepthLevel:        20,
+		CallBackDepthTimeoutMilli: 5000,
+		InitOrderBookSize:         100,
+		Level:                     "20",
+	},
+	FuturesConfig: GateOrderBookConfigBase{
+		USpeed:                    "10ms",
+		LimitRestCountPerMinute:   300,
+		PerConnSubNum:             20,
+		PerSubMaxLen:              20,
+		CallBackDepthLevel:        20,
+		CallBackDepthTimeoutMilli: 5000,
+		InitOrderBookSize:         100,
+		Level:                     "20",
+	},
+	DeliveryConfig: GateOrderBookConfigBase{
+		USpeed:                    "10ms",
+		LimitRestCountPerMinute:   300,
+		PerConnSubNum:             20,
+		PerSubMaxLen:              20,
+		CallBackDepthLevel:        20,
+		CallBackDepthTimeoutMilli: 5000,
+		InitOrderBookSize:         100,
+		Level:                     "20",
+	},
+}
