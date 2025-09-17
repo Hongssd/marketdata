@@ -87,6 +87,8 @@ func (ob *OrderBook) LoadToDepth(depth *Depth, level int) (*Depth, error) {
 	// }
 
 	newDepth := &Depth{
+		UId:         depth.UId,
+		PreUId:      depth.PreUId,
 		Exchange:    depth.Exchange,
 		AccountType: depth.AccountType,
 		Symbol:      depth.Symbol,
