@@ -248,6 +248,7 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 					o.OrderBookLastUpdateIdMap.Delete(Symbol)
 					o.OrderBookRBTreeMap.Delete(Symbol)
 					o.initOkxDepthOrderBook(result)
+					// log.Infof("snapshot: %v", result)
 				case "update":
 					//增量数据更新，需要进行校验
 					_, err := o.checkOkxDepthIsReady(Symbol)
@@ -256,7 +257,7 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 						go reSubThis(Symbol)
 						continue
 					}
-
+					// log.Infof("update: %v", result)
 					err = o.saveOkxDepthOrderBook(result)
 					if err != nil {
 						log.Error(err)
@@ -265,6 +266,28 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 						continue
 					}
 
+					if callback == nil || o.callBackDepthLevel == 0 {
+						continue
+					}
+
+					depth, err := o.GetDepth(Symbol, int(o.callBackDepthLevel), o.callBackDepthTimeoutMilli)
+					if err != nil {
+						callback(nil, err)
+						continue
+					}
+					depth.UId = result.SeqId
+					depth.PreUId = result.PrevSeqId
+					callback(depth, err)
+				default:
+					//定量深度推送，直接覆盖全部
+					o.initAndClearOkxDepthOrderBook(result)
+					err = o.saveOkxDepthOrderBook(result)
+					if err != nil {
+						log.Error(err)
+						//保存增量数据失败，直接重新订阅
+						go reSubThis(Symbol)
+						continue
+					}
 					if callback == nil || o.callBackDepthLevel == 0 {
 						continue
 					}
@@ -328,6 +351,16 @@ func (o *OkxOrderBook) initOkxDepthOrderBook(result myokxapi.WsBooks) {
 
 	o.OrderBookReadyUpdateIdMap.Store(Symbol, result.SeqId)
 	o.OrderBookLastUpdateIdMap.Store(Symbol, result.SeqId)
+}
+func (o *OkxOrderBook) initAndClearOkxDepthOrderBook(result myokxapi.WsBooks) {
+	Symbol := result.InstId
+	//log.Infof("初始化深度池%s:", Symbol)
+	orderBook, ok := o.OrderBookRBTreeMap.Load(Symbol)
+	if !ok {
+		orderBook = NewOrderBook()
+		o.OrderBookRBTreeMap.Store(Symbol, orderBook)
+	}
+	orderBook.ClearAll()
 }
 
 // 将Depth保存至OrderBook
