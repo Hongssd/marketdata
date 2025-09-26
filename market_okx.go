@@ -21,6 +21,12 @@ type OkxMarketData struct {
 	*OkxTickers
 }
 
+var OkxServerTimeDeltaActive bool = true
+
+func SetOkxServerTimeDeltaActive(active bool) {
+	OkxServerTimeDeltaActive = active
+}
+
 func NewOkxMarketDataDefault() (*OkxMarketData, error) {
 	return NewOkxMarketData("", "", "")
 }
@@ -78,6 +84,12 @@ func (om *OkxMarketData) GetServerTimeDelta() int64 {
 func (om *OkxMarketData) init() error {
 	c := cron.New(cron.WithSeconds())
 	refresh := func() {
+		if !OkxServerTimeDeltaActive {
+			om.serverTimeDelta = 0
+			om.serverTimeDeltaTimes = 0
+			om.serverTimeDeltaSum = 0
+			return
+		}
 		serverTimeDelta, err := OkxGetServerTimeDelta()
 		if err != nil {
 			log.Error(err)

@@ -19,9 +19,21 @@ type BybitMarketData struct {
 	*BybitTickers
 }
 
+var BybitServerTimeDeltaActive bool = true
+
+func SetBybitServerTimeDeltaActive(active bool) {
+	BybitServerTimeDeltaActive = active
+}
+
 func (bm *BybitMarketData) init() error {
 	c := cron.New(cron.WithSeconds())
 	refresh := func() {
+		if !BybitServerTimeDeltaActive {
+			bm.ServerTimeDelta = 0
+			bm.ServerTimeDeltaTimes = 0
+			bm.ServerTimeDeltaSum = 0
+			return
+		}
 		serverTimeDelta, err := BybitGetServerTimeDelta()
 		if err != nil {
 			log.Error(err)

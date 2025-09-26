@@ -20,9 +20,21 @@ type GateMarketData struct {
 	*GateTickers
 }
 
+var GateServerTimeDeltaActive bool = true
+
+func SetGateServerTimeDeltaActive(active bool) {
+	GateServerTimeDeltaActive = active
+}
+
 func (gm *GateMarketData) init() error {
 	c := cron.New(cron.WithSeconds())
 	refresh := func() {
+		if !GateServerTimeDeltaActive {
+			gm.ServerTimeDelta = 0
+			gm.ServerTimeDeltaTimes = 0
+			gm.ServerTimeDeltaSum = 0
+			return
+		}
 		serverTimeDelta, err := GateGetServerTimeDelta()
 		if err != nil {
 			log.Error(err)

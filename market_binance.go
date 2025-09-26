@@ -30,6 +30,12 @@ type BinanceMarketData struct {
 	*BinanceTickers
 }
 
+var BinanceServerTimeDeltaActive bool = true
+
+func SetBinanceServerTimeDeltaActive(active bool) {
+	BinanceServerTimeDeltaActive = active
+}
+
 func (bm *BinanceMarketData) init() error {
 	c := cron.New(cron.WithSeconds())
 	refresh := func() {
@@ -37,6 +43,12 @@ func (bm *BinanceMarketData) init() error {
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
+			if !BinanceServerTimeDeltaActive {
+				bm.spotServerTimeDelta = 0
+				bm.spotServerTimeDeltaTimes = 0
+				bm.spotServerTimeDeltaSum = 0
+				return
+			}
 			serverTimeDelta, err := BinanceGetServerTimeDelta(BINANCE_SPOT)
 			if err != nil {
 				log.Error(err)
@@ -53,6 +65,12 @@ func (bm *BinanceMarketData) init() error {
 		}()
 		go func() {
 			defer wg.Done()
+			if !BinanceServerTimeDeltaActive {
+				bm.futureServerTimeDelta = 0
+				bm.futureServerTimeDeltaTimes = 0
+				bm.futureServerTimeDeltaSum = 0
+				return
+			}
 			serverTimeDelta, err := BinanceGetServerTimeDelta(BINANCE_FUTURE)
 			if err != nil {
 				log.Error(err)
@@ -69,6 +87,12 @@ func (bm *BinanceMarketData) init() error {
 		}()
 		go func() {
 			defer wg.Done()
+			if !BinanceServerTimeDeltaActive {
+				bm.swapServerTimeDelta = 0
+				bm.swapServerTimeDeltaTimes = 0
+				bm.swapServerTimeDeltaSum = 0
+				return
+			}
 			serverTimeDelta, err := BinanceGetServerTimeDelta(BINANCE_SWAP)
 			if err != nil {
 				log.Error(err)
