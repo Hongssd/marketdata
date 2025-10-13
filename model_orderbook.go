@@ -24,16 +24,16 @@ type Order struct {
 type OrderBook struct {
 	Bids   *rbt.Tree
 	Asks   *rbt.Tree
-	bidsMu *sync.Mutex
-	asksMu *sync.Mutex
+	bidsMu *sync.RWMutex
+	asksMu *sync.RWMutex
 }
 
 func NewOrderBook() *OrderBook {
 	return &OrderBook{
 		Bids:   rbt.NewWith(compareBidPrice),
 		Asks:   rbt.NewWith(compareAskPrice),
-		bidsMu: &sync.Mutex{},
-		asksMu: &sync.Mutex{},
+		bidsMu: &sync.RWMutex{},
+		asksMu: &sync.RWMutex{},
 	}
 }
 
@@ -94,30 +94,29 @@ func (ob *OrderBook) LoadToDepth(depth *Depth, level int) (*Depth, error) {
 		Symbol:      depth.Symbol,
 		Timestamp:   depth.Timestamp,
 	}
+
+	// 使用读锁保护整个操作
+	ob.bidsMu.RLock()
+	ob.asksMu.RLock()
+	defer ob.asksMu.RUnlock() // 确保释放锁，按照获取锁的相反顺序
+	defer ob.bidsMu.RUnlock()
+
 	var bids []PriceLevel
 	var asks []PriceLevel
 
+	// 在锁保护下创建迭代器并遍历
 	treeBidsIt := ob.Bids.Iterator()
+	for i := 0; treeBidsIt.Next() && i < level; i++ {
+		bid := treeBidsIt.Value().(*Order)
+		bids = append(bids, PriceLevel{Price: bid.Price, Quantity: bid.Quantity})
+	}
+
 	treeAsksIt := ob.Asks.Iterator()
+	for i := 0; treeAsksIt.Next() && i < level; i++ {
+		ask := treeAsksIt.Value().(*Order)
+		asks = append(asks, PriceLevel{Price: ask.Price, Quantity: ask.Quantity})
+	}
 
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		for i := 0; treeBidsIt.Next() && i < level; i++ {
-			bid := treeBidsIt.Value().(*Order)
-			bids = append(bids, PriceLevel{Price: bid.Price, Quantity: bid.Quantity})
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		for i := 0; treeAsksIt.Next() && i < level; i++ {
-			ask := treeAsksIt.Value().(*Order)
-			asks = append(asks, PriceLevel{Price: ask.Price, Quantity: ask.Quantity})
-		}
-	}()
-
-	wg.Wait()
 	newDepth.Bids = bids
 	newDepth.Asks = asks
 	//log.Info(len(newDepth.Bids), len(newDepth.Asks))
