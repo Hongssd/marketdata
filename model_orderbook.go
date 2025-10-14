@@ -1,8 +1,6 @@
 package marketdata
 
 import (
-	"sync"
-
 	rbt "github.com/emirpasic/gods/trees/redblacktree"
 	utils "github.com/emirpasic/gods/utils"
 )
@@ -22,26 +20,26 @@ type Order struct {
 	Quantity float64 // 订单的数量
 }
 type OrderBook struct {
-	Bids   *rbt.Tree
-	Asks   *rbt.Tree
-	bidsMu *sync.RWMutex
-	asksMu *sync.RWMutex
+	Bids *rbt.Tree
+	Asks *rbt.Tree
+	// bidsMu *sync.RWMutex
+	// asksMu *sync.RWMutex
 }
 
 func NewOrderBook() *OrderBook {
 	return &OrderBook{
-		Bids:   rbt.NewWith(compareBidPrice),
-		Asks:   rbt.NewWith(compareAskPrice),
-		bidsMu: &sync.RWMutex{},
-		asksMu: &sync.RWMutex{},
+		Bids: rbt.NewWith(compareBidPrice),
+		Asks: rbt.NewWith(compareAskPrice),
+		// bidsMu: &sync.RWMutex{},
+		// asksMu: &sync.RWMutex{},
 	}
 }
 func (ob *OrderBook) PutBidLevels(prices, quantities []float64) {
 	if ob.Bids == nil {
 		return
 	}
-	ob.bidsMu.Lock()
-	defer ob.bidsMu.Unlock()
+	// ob.bidsMu.Lock()
+	// defer ob.bidsMu.Unlock()
 
 	for i := 0; i < len(prices); i++ {
 		if quantities[i] == 0 {
@@ -56,8 +54,8 @@ func (ob *OrderBook) PutAskLevels(prices, quantities []float64) {
 	if ob.Asks == nil {
 		return
 	}
-	ob.asksMu.Lock()
-	defer ob.asksMu.Unlock()
+	// ob.asksMu.Lock()
+	// defer ob.asksMu.Unlock()
 
 	for i := 0; i < len(prices); i++ {
 		if quantities[i] == 0 {
@@ -102,10 +100,10 @@ func (ob *OrderBook) PutAskLevels(prices, quantities []float64) {
 // }
 
 func (ob *OrderBook) ClearAll() {
-	ob.bidsMu.Lock()
-	defer ob.bidsMu.Unlock()
-	ob.asksMu.Lock()
-	defer ob.asksMu.Unlock()
+	// ob.bidsMu.Lock()
+	// defer ob.bidsMu.Unlock()
+	// ob.asksMu.Lock()
+	// defer ob.asksMu.Unlock()
 	ob.Bids.Clear()
 	ob.Asks.Clear()
 }
@@ -130,21 +128,21 @@ func (ob *OrderBook) LoadToDepth(depth *Depth, level int) (*Depth, error) {
 	var asks []PriceLevel
 
 	// 在锁保护下创建迭代器并遍历
-	ob.bidsMu.RLock()
+	// ob.bidsMu.RLock()
 	treeBidsIt := ob.Bids.Iterator()
 	for i := 0; treeBidsIt.Next() && i < level; i++ {
 		bid := treeBidsIt.Value().(*Order)
 		bids = append(bids, PriceLevel{Price: bid.Price, Quantity: bid.Quantity})
 	}
-	ob.bidsMu.RUnlock()
+	// ob.bidsMu.RUnlock()
 
-	ob.asksMu.RLock()
+	// ob.asksMu.RLock()
 	treeAsksIt := ob.Asks.Iterator()
 	for i := 0; treeAsksIt.Next() && i < level; i++ {
 		ask := treeAsksIt.Value().(*Order)
 		asks = append(asks, PriceLevel{Price: ask.Price, Quantity: ask.Quantity})
 	}
-	ob.asksMu.RUnlock()
+	// ob.asksMu.RUnlock()
 
 	newDepth.Bids = bids
 	newDepth.Asks = asks
