@@ -36,39 +36,70 @@ func NewOrderBook() *OrderBook {
 		asksMu: &sync.RWMutex{},
 	}
 }
+func (ob *OrderBook) PutBidLevels(prices, quantities []float64) {
+	if ob.Bids == nil {
+		return
+	}
+	ob.bidsMu.Lock()
+	defer ob.bidsMu.Unlock()
 
-func (ob *OrderBook) PutBid(price, quantity float64) {
-	if ob.Bids == nil {
-		return
+	for i := 0; i < len(prices); i++ {
+		if quantities[i] == 0 {
+			ob.Bids.Remove(prices[i])
+			continue
+		}
+		ob.Bids.Put(prices[i], &Order{prices[i], quantities[i]})
 	}
-	ob.bidsMu.Lock()
-	defer ob.bidsMu.Unlock()
-	ob.Bids.Put(price, &Order{price, quantity})
 }
-func (ob *OrderBook) PutAsk(price, quantity float64) {
+
+func (ob *OrderBook) PutAskLevels(prices, quantities []float64) {
 	if ob.Asks == nil {
 		return
 	}
 	ob.asksMu.Lock()
 	defer ob.asksMu.Unlock()
-	ob.Asks.Put(price, &Order{price, quantity})
-}
-func (ob *OrderBook) RemoveBid(price float64) {
-	if ob.Bids == nil {
-		return
+
+	for i := 0; i < len(prices); i++ {
+		if quantities[i] == 0 {
+			ob.Asks.Remove(prices[i])
+			continue
+		}
+		ob.Asks.Put(prices[i], &Order{prices[i], quantities[i]})
 	}
-	ob.bidsMu.Lock()
-	defer ob.bidsMu.Unlock()
-	ob.Bids.Remove(price)
 }
-func (ob *OrderBook) RemoveAsk(price float64) {
-	if ob.Asks == nil {
-		return
-	}
-	ob.asksMu.Lock()
-	defer ob.asksMu.Unlock()
-	ob.Asks.Remove(price)
-}
+
+// func (ob *OrderBook) PutBid(price, quantity float64) {
+// 	if ob.Bids == nil {
+// 		return
+// 	}
+// 	ob.bidsMu.Lock()
+// 	defer ob.bidsMu.Unlock()
+// 	ob.Bids.Put(price, &Order{price, quantity})
+// }
+// func (ob *OrderBook) PutAsk(price, quantity float64) {
+// 	if ob.Asks == nil {
+// 		return
+// 	}
+// 	ob.asksMu.Lock()
+// 	defer ob.asksMu.Unlock()
+// 	ob.Asks.Put(price, &Order{price, quantity})
+// }
+// func (ob *OrderBook) RemoveBid(price float64) {
+// 	if ob.Bids == nil {
+// 		return
+// 	}
+// 	ob.bidsMu.Lock()
+// 	defer ob.bidsMu.Unlock()
+// 	ob.Bids.Remove(price)
+// }
+// func (ob *OrderBook) RemoveAsk(price float64) {
+// 	if ob.Asks == nil {
+// 		return
+// 	}
+// 	ob.asksMu.Lock()
+// 	defer ob.asksMu.Unlock()
+// 	ob.Asks.Remove(price)
+// }
 
 func (ob *OrderBook) ClearAll() {
 	ob.bidsMu.Lock()
@@ -95,27 +126,25 @@ func (ob *OrderBook) LoadToDepth(depth *Depth, level int) (*Depth, error) {
 		Timestamp:   depth.Timestamp,
 	}
 
-	// 使用读锁保护整个操作
-	ob.bidsMu.RLock()
-	ob.asksMu.RLock()
-	defer ob.asksMu.RUnlock() // 确保释放锁，按照获取锁的相反顺序
-	defer ob.bidsMu.RUnlock()
-
 	var bids []PriceLevel
 	var asks []PriceLevel
 
 	// 在锁保护下创建迭代器并遍历
+	ob.bidsMu.RLock()
 	treeBidsIt := ob.Bids.Iterator()
 	for i := 0; treeBidsIt.Next() && i < level; i++ {
 		bid := treeBidsIt.Value().(*Order)
 		bids = append(bids, PriceLevel{Price: bid.Price, Quantity: bid.Quantity})
 	}
+	ob.bidsMu.RUnlock()
 
+	ob.asksMu.RLock()
 	treeAsksIt := ob.Asks.Iterator()
 	for i := 0; treeAsksIt.Next() && i < level; i++ {
 		ask := treeAsksIt.Value().(*Order)
 		asks = append(asks, PriceLevel{Price: ask.Price, Quantity: ask.Quantity})
 	}
+	ob.asksMu.RUnlock()
 
 	newDepth.Bids = bids
 	newDepth.Asks = asks

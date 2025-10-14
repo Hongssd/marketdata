@@ -337,17 +337,27 @@ func (o *OkxOrderBook) initOkxDepthOrderBook(result myokxapi.WsBooks) {
 		orderBook = NewOrderBook()
 		o.OrderBookRBTreeMap.Store(Symbol, orderBook)
 	}
+
+	bidPrices := make([]float64, 0, len(result.Bids))
+	bidQuantities := make([]float64, 0, len(result.Bids))
+	askPrices := make([]float64, 0, len(result.Asks))
+	askQuantities := make([]float64, 0, len(result.Asks))
+
 	//保存至OrderBook
 	for _, bid := range result.Bids {
-		p, _ := decimal.NewFromString(bid.Price)
-		q, _ := decimal.NewFromString(bid.Quantity)
-		orderBook.PutBid(p.InexactFloat64(), q.InexactFloat64())
+		p, _ := strconv.ParseFloat(bid.Price, 64)
+		q, _ := strconv.ParseFloat(bid.Quantity, 64)
+		bidPrices = append(bidPrices, p)
+		bidQuantities = append(bidQuantities, q)
 	}
 	for _, ask := range result.Asks {
-		p, _ := decimal.NewFromString(ask.Price)
-		q, _ := decimal.NewFromString(ask.Quantity)
-		orderBook.PutAsk(p.InexactFloat64(), q.InexactFloat64())
+		p, _ := strconv.ParseFloat(ask.Price, 64)
+		q, _ := strconv.ParseFloat(ask.Quantity, 64)
+		askPrices = append(askPrices, p)
+		askQuantities = append(askQuantities, q)
 	}
+	orderBook.PutBidLevels(bidPrices, bidQuantities)
+	orderBook.PutAskLevels(askPrices, askQuantities)
 
 	o.OrderBookReadyUpdateIdMap.Store(Symbol, result.SeqId)
 	o.OrderBookLastUpdateIdMap.Store(Symbol, result.SeqId)
@@ -401,34 +411,26 @@ func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 		return nil
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for _, bid := range result.Bids {
-			p, _ := decimal.NewFromString(bid.Price)
-			q, _ := decimal.NewFromString(bid.Quantity)
-			if q.IsZero() {
-				orderBook.RemoveBid(p.InexactFloat64())
-				continue
-			}
-			orderBook.PutBid(p.InexactFloat64(), q.InexactFloat64())
-		}
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for _, ask := range result.Asks {
-			p, _ := decimal.NewFromString(ask.Price)
-			q, _ := decimal.NewFromString(ask.Quantity)
-			if q.IsZero() {
-				orderBook.RemoveAsk(p.InexactFloat64())
-				continue
-			}
-			orderBook.PutAsk(p.InexactFloat64(), q.InexactFloat64())
-		}
-	}()
-	wg.Wait()
+	bidPrices := make([]float64, 0, len(result.Bids))
+	bidQuantities := make([]float64, 0, len(result.Bids))
+	askPrices := make([]float64, 0, len(result.Asks))
+	askQuantities := make([]float64, 0, len(result.Asks))
+
+	for _, bid := range result.Bids {
+		p, _ := strconv.ParseFloat(bid.Price, 64)
+		q, _ := strconv.ParseFloat(bid.Quantity, 64)
+		bidPrices = append(bidPrices, p)
+		bidQuantities = append(bidQuantities, q)
+	}
+	for _, ask := range result.Asks {
+		p, _ := strconv.ParseFloat(ask.Price, 64)
+		q, _ := strconv.ParseFloat(ask.Quantity, 64)
+		askPrices = append(askPrices, p)
+		askQuantities = append(askQuantities, q)
+	}
+
+	orderBook.PutBidLevels(bidPrices, bidQuantities)
+	orderBook.PutAskLevels(askPrices, askQuantities)
 
 	if okx_common == nil {
 		okx_common = (&okxCommon{}).InitCommon()

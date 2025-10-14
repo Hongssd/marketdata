@@ -377,6 +377,12 @@ func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
 			log.Error(err)
 			return err
 		}
+
+		bidPrices := make([]float64, 0, len(depth.Bids))
+		bidQuantities := make([]float64, 0, len(depth.Bids))
+		askPrices := make([]float64, 0, len(depth.Asks))
+		askQuantities := make([]float64, 0, len(depth.Asks))
+
 		//保存至OrderBook
 		for _, bid := range depth.Bids {
 			p, q, err := bid.ParseDecimal()
@@ -384,7 +390,8 @@ func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
 				log.Error(err)
 				return err
 			}
-			orderBook.PutBid(p.InexactFloat64(), q.InexactFloat64())
+			bidPrices = append(bidPrices, p.InexactFloat64())
+			bidQuantities = append(bidQuantities, q.InexactFloat64())
 		}
 		for _, ask := range depth.Asks {
 			p, q, err := ask.ParseDecimal()
@@ -392,9 +399,11 @@ func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
 				log.Error(err)
 				return err
 			}
-			orderBook.PutAsk(p.InexactFloat64(), q.InexactFloat64())
-
+			askPrices = append(askPrices, p.InexactFloat64())
+			askQuantities = append(askQuantities, q.InexactFloat64())
 		}
+		orderBook.PutBidLevels(bidPrices, bidQuantities)
+		orderBook.PutAskLevels(askPrices, askQuantities)
 		b.OrderBookLastUpdateIdMap.Store(Symbol, depth.LastUpdateId)
 	case BINANCE_FUTURE:
 		//重新初始化
@@ -403,6 +412,12 @@ func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
 			log.Error(err)
 			return err
 		}
+
+		bidPrices := make([]float64, 0, len(depth.Bids))
+		bidQuantities := make([]float64, 0, len(depth.Bids))
+		askPrices := make([]float64, 0, len(depth.Asks))
+		askQuantities := make([]float64, 0, len(depth.Asks))
+
 		//保存至OrderBook
 		for _, bid := range depth.Bids {
 			p, q, err := bid.ParseDecimal()
@@ -410,7 +425,8 @@ func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
 				log.Error(err)
 				return err
 			}
-			orderBook.PutBid(p.InexactFloat64(), q.InexactFloat64())
+			bidPrices = append(bidPrices, p.InexactFloat64())
+			bidQuantities = append(bidQuantities, q.InexactFloat64())
 		}
 		for _, ask := range depth.Asks {
 			p, q, err := ask.ParseDecimal()
@@ -418,9 +434,12 @@ func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
 				log.Error(err)
 				return err
 			}
-			orderBook.PutAsk(p.InexactFloat64(), q.InexactFloat64())
-
+			askPrices = append(askPrices, p.InexactFloat64())
+			askQuantities = append(askQuantities, q.InexactFloat64())
 		}
+
+		orderBook.PutBidLevels(bidPrices, bidQuantities)
+		orderBook.PutAskLevels(askPrices, askQuantities)
 		b.OrderBookLastUpdateIdMap.Store(Symbol, depth.LastUpdateId)
 	case BINANCE_SWAP:
 		//重新初始化
@@ -429,6 +448,10 @@ func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
 			log.Error(err)
 			return err
 		}
+		bidPrices := make([]float64, 0, len(depth.Bids))
+		bidQuantities := make([]float64, 0, len(depth.Bids))
+		askPrices := make([]float64, 0, len(depth.Asks))
+		askQuantities := make([]float64, 0, len(depth.Asks))
 		//保存至OrderBook
 		for _, bid := range depth.Bids {
 			p, q, err := bid.ParseDecimal()
@@ -436,7 +459,8 @@ func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
 				log.Error(err)
 				return err
 			}
-			orderBook.PutBid(p.InexactFloat64(), q.InexactFloat64())
+			bidPrices = append(bidPrices, p.InexactFloat64())
+			bidQuantities = append(bidQuantities, q.InexactFloat64())
 		}
 		for _, ask := range depth.Asks {
 			p, q, err := ask.ParseDecimal()
@@ -444,9 +468,13 @@ func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
 				log.Error(err)
 				return err
 			}
-			orderBook.PutAsk(p.InexactFloat64(), q.InexactFloat64())
-
+			askPrices = append(askPrices, p.InexactFloat64())
+			askQuantities = append(askQuantities, q.InexactFloat64())
 		}
+
+		orderBook.PutBidLevels(bidPrices, bidQuantities)
+		orderBook.PutAskLevels(askPrices, askQuantities)
+
 		b.OrderBookLastUpdateIdMap.Store(Symbol, depth.LastUpdateId)
 	}
 
@@ -552,31 +580,24 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBook(result mybinanceapi.WsD
 		b.OrderBookRBTreeMap.Store(Symbol, orderBook)
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for _, bid := range result.Bids {
-			if bid.Quantity == 0 {
-				orderBook.RemoveBid(bid.Price)
-				continue
-			}
-			orderBook.PutBid(bid.Price, bid.Quantity)
-		}
-	}()
+	bidPrices := make([]float64, 0, len(result.Bids))
+	bidQuantities := make([]float64, 0, len(result.Bids))
+	askPrices := make([]float64, 0, len(result.Asks))
+	askQuantities := make([]float64, 0, len(result.Asks))
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for _, ask := range result.Asks {
-			if ask.Quantity == 0 {
-				orderBook.RemoveAsk(ask.Price)
-				continue
-			}
-			orderBook.PutAsk(ask.Price, ask.Quantity)
-		}
-	}()
-	wg.Wait()
+	for _, bid := range result.Bids {
+		bidPrices = append(bidPrices, bid.Price)
+		bidQuantities = append(bidQuantities, bid.Quantity)
+	}
+
+	for _, ask := range result.Asks {
+		askPrices = append(askPrices, ask.Price)
+		askQuantities = append(askQuantities, ask.Quantity)
+	}
+
+	orderBook.PutBidLevels(bidPrices, bidQuantities)
+	orderBook.PutAskLevels(askPrices, askQuantities)
+
 	//log.Warn(result.LowerU, result.UpperU, result.LastUpdateID)
 
 	UId, PreUId := b.GetUidAndPreUid(result)

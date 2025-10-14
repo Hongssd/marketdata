@@ -297,13 +297,26 @@ func (b *bybitOrderBookBase) initBybitDepthOrderBook(result mybybitapi.WsDepth) 
 	//log.Infof("初始化深度池%s:", Symbol)
 	orderBook := NewOrderBook()
 	b.OrderBookRBTreeMap.Store(Symbol, orderBook)
+
+	bidPrices := make([]float64, 0, len(result.Bids))
+	bidQuantities := make([]float64, 0, len(result.Bids))
+	askPrices := make([]float64, 0, len(result.Asks))
+	askQuantities := make([]float64, 0, len(result.Asks))
+
 	//保存至OrderBook
 	for _, bid := range result.Bids {
-		orderBook.PutBid(bid.Float64Result())
+		p, q := bid.DecimalResult()
+		bidPrices = append(bidPrices, p.InexactFloat64())
+		bidQuantities = append(bidQuantities, q.InexactFloat64())
 	}
 	for _, ask := range result.Asks {
-		orderBook.PutAsk(ask.Float64Result())
+		p, q := ask.DecimalResult()
+		askPrices = append(askPrices, p.InexactFloat64())
+		askQuantities = append(askQuantities, q.InexactFloat64())
 	}
+
+	orderBook.PutBidLevels(bidPrices, bidQuantities)
+	orderBook.PutAskLevels(askPrices, askQuantities)
 
 	b.OrderBookReadyUpdateIdMap.Store(Symbol, result.U)
 	b.OrderBookLastUpdateIdMap.Store(Symbol, result.U)
@@ -328,32 +341,24 @@ func (b *bybitOrderBookBase) saveBybitDepthOrderBook(result mybybitapi.WsDepth) 
 		b.OrderBookRBTreeMap.Store(Symbol, orderBook)
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for _, bid := range result.Bids {
-			p, q := bid.DecimalResult()
-			if q.IsZero() {
-				orderBook.RemoveBid(p.InexactFloat64())
-				continue
-			}
-			orderBook.PutBid(p.InexactFloat64(), q.InexactFloat64())
-		}
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for _, ask := range result.Asks {
-			p, q := ask.DecimalResult()
-			if q.IsZero() {
-				orderBook.RemoveAsk(p.InexactFloat64())
-				continue
-			}
-			orderBook.PutAsk(p.InexactFloat64(), q.InexactFloat64())
-		}
-	}()
-	wg.Wait()
+	bidPrices := make([]float64, 0, len(result.Bids))
+	bidQuantities := make([]float64, 0, len(result.Bids))
+	askPrices := make([]float64, 0, len(result.Asks))
+	askQuantities := make([]float64, 0, len(result.Asks))
+
+	for _, bid := range result.Bids {
+		p, q := bid.DecimalResult()
+		bidPrices = append(bidPrices, p.InexactFloat64())
+		bidQuantities = append(bidQuantities, q.InexactFloat64())
+	}
+	for _, ask := range result.Asks {
+		p, q := ask.DecimalResult()
+		askPrices = append(askPrices, p.InexactFloat64())
+		askQuantities = append(askQuantities, q.InexactFloat64())
+	}
+
+	orderBook.PutBidLevels(bidPrices, bidQuantities)
+	orderBook.PutAskLevels(askPrices, askQuantities)
 
 	now := time.Now().UnixMilli()
 	ts := result.Ts

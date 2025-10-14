@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/shopspring/decimal"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/Hongssd/mygateapi"
@@ -368,22 +368,33 @@ func (b *gateOrderBookBase) initGateDepthOrderBook(Symbol string) error {
 		//d, _ := json.Marshal(depth)
 		//log.Warn(string(d))
 		//保存至OrderBook
+
+		bidPrices := make([]float64, 0, len(depth.Bids))
+		bidQuantities := make([]float64, 0, len(depth.Bids))
+		askPrices := make([]float64, 0, len(depth.Asks))
+		askQuantities := make([]float64, 0, len(depth.Asks))
+
 		for _, bid := range depth.Bids {
 			if len(bid) != 2 {
 				continue
 			}
-			p, _ := decimal.NewFromString(bid[0])
-			q, _ := decimal.NewFromString(bid[1])
-			orderBook.PutBid(p.InexactFloat64(), q.InexactFloat64())
+			p, _ := strconv.ParseFloat(bid[0], 64)
+			q, _ := strconv.ParseFloat(bid[1], 64)
+			bidPrices = append(bidPrices, p)
+			bidQuantities = append(bidQuantities, q)
 		}
 		for _, ask := range depth.Asks {
 			if len(ask) != 2 {
 				continue
 			}
-			p, _ := decimal.NewFromString(ask[0])
-			q, _ := decimal.NewFromString(ask[1])
-			orderBook.PutAsk(p.InexactFloat64(), q.InexactFloat64())
+			p, _ := strconv.ParseFloat(ask[0], 64)
+			q, _ := strconv.ParseFloat(ask[1], 64)
+			askPrices = append(askPrices, p)
+			askQuantities = append(askQuantities, q)
 		}
+		orderBook.PutBidLevels(bidPrices, bidQuantities)
+		orderBook.PutAskLevels(askPrices, askQuantities)
+
 		b.OrderBookBaseIdMap.Store(Symbol, depth.ID)
 		// baseId = depth.ID
 		// baseDepth = depth
@@ -399,17 +410,26 @@ func (b *gateOrderBookBase) initGateDepthOrderBook(Symbol string) error {
 		//d, _ := json.Marshal(depth)
 		//log.Warn(string(d))
 		//保存至OrderBook
+		bidPrices := make([]float64, 0, len(depth.Bids))
+		bidQuantities := make([]float64, 0, len(depth.Bids))
+		askPrices := make([]float64, 0, len(depth.Asks))
+		askQuantities := make([]float64, 0, len(depth.Asks))
+
 		for _, bid := range depth.Bids {
-			p, _ := decimal.NewFromString(bid.P)
-			q := decimal.NewFromInt(bid.S)
-			orderBook.PutBid(p.InexactFloat64(), q.InexactFloat64())
+			p, _ := strconv.ParseFloat(bid.P, 64)
+			q := float64(bid.S)
+			bidPrices = append(bidPrices, p)
+			bidQuantities = append(bidQuantities, q)
 		}
 		for _, ask := range depth.Asks {
-			p, _ := decimal.NewFromString(ask.P)
-			q := decimal.NewFromInt(ask.S)
-			orderBook.PutAsk(p.InexactFloat64(), q.InexactFloat64())
+			p, _ := strconv.ParseFloat(ask.P, 64)
+			q := float64(ask.S)
+			askPrices = append(askPrices, p)
+			askQuantities = append(askQuantities, q)
 
 		}
+		orderBook.PutBidLevels(bidPrices, bidQuantities)
+		orderBook.PutAskLevels(askPrices, askQuantities)
 		b.OrderBookBaseIdMap.Store(Symbol, depth.Id)
 		// baseId = depth.Id
 		// baseDepth = depth
@@ -424,16 +444,22 @@ func (b *gateOrderBookBase) initGateDepthOrderBook(Symbol string) error {
 		depth := res.Data
 		//d, _ := json.Marshal(depth)
 		//log.Warn(string(d))
+		bidPrices := make([]float64, 0, len(depth.Bids))
+		bidQuantities := make([]float64, 0, len(depth.Bids))
+		askPrices := make([]float64, 0, len(depth.Asks))
+		askQuantities := make([]float64, 0, len(depth.Asks))
 		//保存至OrderBook
 		for _, bid := range depth.Bids {
-			p, _ := decimal.NewFromString(bid.Price)
-			q := decimal.NewFromInt(bid.Quantity)
-			orderBook.PutBid(p.InexactFloat64(), q.InexactFloat64())
+			p, _ := strconv.ParseFloat(bid.Price, 64)
+			q := float64(bid.Quantity)
+			bidPrices = append(bidPrices, p)
+			bidQuantities = append(bidQuantities, q)
 		}
 		for _, ask := range depth.Asks {
-			p, _ := decimal.NewFromString(ask.Price)
-			q := decimal.NewFromInt(ask.Quantity)
-			orderBook.PutAsk(p.InexactFloat64(), q.InexactFloat64())
+			p, _ := strconv.ParseFloat(ask.Price, 64)
+			q := float64(ask.Quantity)
+			askPrices = append(askPrices, p)
+			askQuantities = append(askQuantities, q)
 		}
 		b.OrderBookBaseIdMap.Store(Symbol, depth.ID)
 		// baseId = depth.ID
@@ -601,37 +627,24 @@ func (b *gateOrderBookBase) saveGateDepthOrderBook(result mygateapi.WsOrderBook)
 		b.OrderBookRBTreeMap.Store(Symbol, orderBook)
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for _, bid := range result.Bids {
-			p, _ := decimal.NewFromString(bid.Price)
-			q, _ := decimal.NewFromString(bid.Quantity)
-			if q.IsZero() {
-				orderBook.RemoveBid(p.InexactFloat64())
-				orderBook.RemoveAsk(p.InexactFloat64())
-				continue
-			}
-			orderBook.PutBid(p.InexactFloat64(), q.InexactFloat64())
-		}
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for _, ask := range result.Asks {
-			p, _ := decimal.NewFromString(ask.Price)
-			q, _ := decimal.NewFromString(ask.Quantity)
-			if q.IsZero() {
-				orderBook.RemoveBid(p.InexactFloat64())
-				orderBook.RemoveAsk(p.InexactFloat64())
-				continue
-			}
-			orderBook.PutAsk(p.InexactFloat64(), q.InexactFloat64())
-		}
-	}()
-	wg.Wait()
+	bidPrices := make([]float64, 0, len(result.Bids))
+	bidQuantities := make([]float64, 0, len(result.Bids))
+	askPrices := make([]float64, 0, len(result.Asks))
+	askQuantities := make([]float64, 0, len(result.Asks))
+	for _, bid := range result.Bids {
+		p, _ := strconv.ParseFloat(bid.Price, 64)
+		q, _ := strconv.ParseFloat(bid.Quantity, 64)
+		bidPrices = append(bidPrices, p)
+		bidQuantities = append(bidQuantities, q)
+	}
+	for _, ask := range result.Asks {
+		p, _ := strconv.ParseFloat(ask.Price, 64)
+		q, _ := strconv.ParseFloat(ask.Quantity, 64)
+		askPrices = append(askPrices, p)
+		askQuantities = append(askQuantities, q)
+	}
+	orderBook.PutBidLevels(bidPrices, bidQuantities)
+	orderBook.PutAskLevels(askPrices, askQuantities)
 	//log.Warn(result.LowerU, result.UpperU, result.LastUpdateID)
 
 	UId, PreUId := b.GetUidAndPreUid(result)

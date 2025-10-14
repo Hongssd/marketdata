@@ -227,7 +227,6 @@ func (bm *BinanceMarketData) GetServerTimeDelta(accountType BinanceAccountType) 
 	case BINANCE_FUTURE:
 		return bm.futureServerTimeDelta
 	case BINANCE_SWAP:
-
 		return bm.swapServerTimeDelta
 	default:
 		return 0
