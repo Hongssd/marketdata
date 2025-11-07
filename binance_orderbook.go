@@ -34,7 +34,7 @@ type binanceOrderBookBase struct {
 	Exchange                  Exchange
 	AccountType               BinanceAccountType
 	OrderBookCacheMap         *MySyncMap[string, *MySyncMap[int64, *mybinanceapi.WsDepth]]
-	OrderBookRBTreeMap        *MySyncMap[string, *OrderBook]
+	OrderBookRBTreeMap        *MySyncMap[string, OrderBook]
 	OrderBookReadyUpdateIdMap *MySyncMap[string, int64]
 	OrderBookMap              *MySyncMap[string, *Depth]
 	OrderBookLastUpdateIdMap  *MySyncMap[string, int64]
@@ -78,7 +78,7 @@ func (b *BinanceOrderBook) newBinanceOrderBookBase(config BinanceOrderBookConfig
 		callBackDepthTimeoutMilli: config.CallBackDepthTimeoutMilli,
 		initOrderBookSize:         config.InitOrderBookSize,
 		OrderBookCacheMap:         GetPointer(NewMySyncMap[string, *MySyncMap[int64, *mybinanceapi.WsDepth]]()),
-		OrderBookRBTreeMap:        GetPointer(NewMySyncMap[string, *OrderBook]()),
+		OrderBookRBTreeMap:        GetPointer(NewMySyncMap[string, OrderBook]()),
 		OrderBookReadyUpdateIdMap: GetPointer(NewMySyncMap[string, int64]()),
 		OrderBookMap:              GetPointer(NewMySyncMap[string, *Depth]()),
 		OrderBookLastUpdateIdMap:  GetPointer(NewMySyncMap[string, int64]()),

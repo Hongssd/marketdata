@@ -21,7 +21,7 @@ type OkxOrderBook struct {
 	callBackDepthLevel        int64
 	callBackDepthTimeoutMilli int64
 	Exchange                  Exchange
-	OrderBookRBTreeMap        *MySyncMap[string, *OrderBook]
+	OrderBookRBTreeMap        *MySyncMap[string, OrderBook]
 	OrderBookReadyUpdateIdMap *MySyncMap[string, int64]
 	OrderBookMap              *MySyncMap[string, *Depth]
 	OrderBookLastUpdateIdMap  *MySyncMap[string, int64]
@@ -49,7 +49,7 @@ func (om *OkxMarketData) newOkxOrderBook(config OkxOrderBookConfig) *OkxOrderBoo
 		callBackDepthTimeoutMilli: config.CallBackDepthTimeoutMilli,
 
 		Exchange:                  OKX,
-		OrderBookRBTreeMap:        GetPointer(NewMySyncMap[string, *OrderBook]()),
+		OrderBookRBTreeMap:        GetPointer(NewMySyncMap[string, OrderBook]()),
 		OrderBookReadyUpdateIdMap: GetPointer(NewMySyncMap[string, int64]()),
 		OrderBookMap:              GetPointer(NewMySyncMap[string, *Depth]()),
 		OrderBookLastUpdateIdMap:  GetPointer(NewMySyncMap[string, int64]()),

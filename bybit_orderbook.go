@@ -29,7 +29,7 @@ type bybitOrderBookBase struct {
 	BybitWsClientBase
 	Exchange                  Exchange
 	AccountType               BybitAccountType
-	OrderBookRBTreeMap        *MySyncMap[string, *OrderBook]
+	OrderBookRBTreeMap        *MySyncMap[string, OrderBook]
 	OrderBookReadyUpdateIdMap *MySyncMap[string, int64]
 	OrderBookMap              *MySyncMap[string, *Depth]
 	OrderBookLastUpdateIdMap  *MySyncMap[string, int64]
@@ -72,7 +72,7 @@ func (b *BybitOrderBook) newBybitOrderBookBase(config BybitOrderBookConfigBase) 
 		level:                     config.Level,
 		callBackDepthLevel:        config.CallBackDepthLevel,
 		callBackDepthTimeoutMilli: config.CallBackDepthTimeoutMilli,
-		OrderBookRBTreeMap:        GetPointer(NewMySyncMap[string, *OrderBook]()),
+		OrderBookRBTreeMap:        GetPointer(NewMySyncMap[string, OrderBook]()),
 		OrderBookReadyUpdateIdMap: GetPointer(NewMySyncMap[string, int64]()),
 		OrderBookMap:              GetPointer(NewMySyncMap[string, *Depth]()),
 		OrderBookLastUpdateIdMap:  GetPointer(NewMySyncMap[string, int64]()),

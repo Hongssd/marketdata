@@ -36,7 +36,7 @@ type gateOrderBookBase struct {
 	Exchange                  Exchange
 	AccountType               GateAccountType
 	OrderBookCacheMap         *MySyncMap[string, *MySyncMap[int64, *mygateapi.WsOrderBook]]
-	OrderBookRBTreeMap        *MySyncMap[string, *OrderBook]
+	OrderBookRBTreeMap        *MySyncMap[string, OrderBook]
 	OrderBookReadyUpdateIdMap *MySyncMap[string, int64]
 	OrderBookMap              *MySyncMap[string, *Depth]
 	OrderBookBaseIdMap        *MySyncMap[string, int64]
@@ -82,7 +82,7 @@ func (b *GateOrderBook) newGateOrderBookBase(config GateOrderBookConfigBase) *ga
 		callBackDepthTimeoutMilli: config.CallBackDepthTimeoutMilli,
 		initOrderBookSize:         config.InitOrderBookSize,
 		OrderBookCacheMap:         GetPointer(NewMySyncMap[string, *MySyncMap[int64, *mygateapi.WsOrderBook]]()),
-		OrderBookRBTreeMap:        GetPointer(NewMySyncMap[string, *OrderBook]()),
+		OrderBookRBTreeMap:        GetPointer(NewMySyncMap[string, OrderBook]()),
 		OrderBookReadyUpdateIdMap: GetPointer(NewMySyncMap[string, int64]()),
 		OrderBookMap:              GetPointer(NewMySyncMap[string, *Depth]()),
 		OrderBookBaseIdMap:        GetPointer(NewMySyncMap[string, int64]()),
