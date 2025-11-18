@@ -153,3 +153,27 @@ func GateGetServerTimeDelta() (int64, error) {
 	delta := res.Data.ServerTime - (t2+t1)/2
 	return -delta, nil
 }
+
+func AsterGetServerTimeDelta(accountType AsterAccountType) (int64, error) {
+	t1 := time.Now().UnixMilli()
+	switch accountType {
+	case ASTER_SPOT:
+		res, err := aster.NewSpotRestClient("", "").NewServerTime().Do()
+		if err != nil {
+			return 0, err
+		}
+		t2 := time.Now().UnixMilli()
+		delta := res.ServerTime - (t2+t1)/2
+		return -delta, nil
+	case ASTER_FUTURE:
+		res, err := aster.NewFutureRestClient("", "").NewServerTime().Do()
+		if err != nil {
+			return 0, err
+		}
+		t2 := time.Now().UnixMilli()
+		delta := res.ServerTime - (t2+t1)/2
+		return -delta, nil
+	default:
+		return 0, ErrorAccountType
+	}
+}

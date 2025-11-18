@@ -1,6 +1,7 @@
 package marketdata
 
 import (
+	"github.com/Hongssd/myasterapi"
 	"github.com/Hongssd/mybinanceapi"
 	"github.com/Hongssd/mygateapi"
 	"github.com/shopspring/decimal"
@@ -19,18 +20,18 @@ type Depth struct {
 
 // 买卖盘口根据档位计算加权均价
 func (d *Depth) WeightedAvgPrice(level int) float64 {
-    var sumPriceWeight decimal.Decimal
-    var sumQuantity decimal.Decimal
-    if len(d.Bids) < level || len(d.Asks) < level {
-        return 0
-    }
-    for i := 0; i < level; i++ {
-        sumPriceWeight = sumPriceWeight.Add(decimal.NewFromFloat(d.Bids[i].Price).Mul(decimal.NewFromFloat(d.Bids[i].Quantity)))
-        sumPriceWeight = sumPriceWeight.Add(decimal.NewFromFloat(d.Asks[i].Price).Mul(decimal.NewFromFloat(d.Asks[i].Quantity)))
-        sumQuantity = sumQuantity.Add(decimal.NewFromFloat(d.Bids[i].Quantity))
-        sumQuantity = sumQuantity.Add(decimal.NewFromFloat(d.Asks[i].Quantity))
-    }
-    return sumPriceWeight.Div(sumQuantity).InexactFloat64()
+	var sumPriceWeight decimal.Decimal
+	var sumQuantity decimal.Decimal
+	if len(d.Bids) < level || len(d.Asks) < level {
+		return 0
+	}
+	for i := 0; i < level; i++ {
+		sumPriceWeight = sumPriceWeight.Add(decimal.NewFromFloat(d.Bids[i].Price).Mul(decimal.NewFromFloat(d.Bids[i].Quantity)))
+		sumPriceWeight = sumPriceWeight.Add(decimal.NewFromFloat(d.Asks[i].Price).Mul(decimal.NewFromFloat(d.Asks[i].Quantity)))
+		sumQuantity = sumQuantity.Add(decimal.NewFromFloat(d.Bids[i].Quantity))
+		sumQuantity = sumQuantity.Add(decimal.NewFromFloat(d.Asks[i].Quantity))
+	}
+	return sumPriceWeight.Div(sumQuantity).InexactFloat64()
 }
 
 type PriceLevel struct {
@@ -80,4 +81,18 @@ func (s SortGateWsOrderBookSlice) Swap(i, j int) {
 
 func (s SortGateWsOrderBookSlice) Less(i, j int) bool {
 	return s[i].LastId < s[j].LastId
+}
+
+type SortAsterWsDepthSlice []myasterapi.WsDepth
+
+func (s SortAsterWsDepthSlice) Len() int {
+	return len(s)
+}
+
+func (s SortAsterWsDepthSlice) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+
+func (s SortAsterWsDepthSlice) Less(i, j int) bool {
+	return s[i].LowerU < s[j].LowerU
 }

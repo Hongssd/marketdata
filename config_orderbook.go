@@ -57,6 +57,21 @@ type GateOrderBookConfigBase struct {
 	Level                     string //可选深度档位 100、50、20；20ms频率 只支持 20档位
 }
 
+type AsterOrderBookConfig struct {
+	SpotConfig   AsterOrderBookConfigBase
+	FutureConfig AsterOrderBookConfigBase
+}
+
+type AsterOrderBookConfigBase struct {
+	USpeed                    string //深度更新速度
+	LimitRestCountPerMinute   int64  //每分钟请求次数
+	PerConnSubNum             int64  //每条链接订阅的数量
+	PerSubMaxLen              int    //每条链接每次订阅的最大数量
+	CallBackDepthLevel        int64  //回调深度档位
+	CallBackDepthTimeoutMilli int64  //超时毫秒数
+	InitOrderBookSize         int    //初始OrderBook档位
+}
+
 var BinanceOrderBookConfigDefault = BinanceOrderBookConfig{
 	SpotConfig: BinanceOrderBookConfigBase{
 		USpeed:                    "100ms",
@@ -149,5 +164,26 @@ var GateOrderBookConfigDefault = GateOrderBookConfig{
 		CallBackDepthTimeoutMilli: 5000,
 		InitOrderBookSize:         100,
 		Level:                     "20",
+	},
+}
+
+var AsterOrderBookConfigDefault = AsterOrderBookConfig{
+	SpotConfig: AsterOrderBookConfigBase{
+		USpeed:                    "100ms",
+		LimitRestCountPerMinute:   500,
+		PerConnSubNum:             20,
+		PerSubMaxLen:              20,
+		CallBackDepthLevel:        20,
+		CallBackDepthTimeoutMilli: 5000,
+		InitOrderBookSize:         100,
+	},
+	FutureConfig: AsterOrderBookConfigBase{
+		USpeed:                    "100ms",
+		LimitRestCountPerMinute:   500,
+		PerConnSubNum:             20,
+		PerSubMaxLen:              20,
+		CallBackDepthLevel:        20,
+		CallBackDepthTimeoutMilli: 5000,
+		InitOrderBookSize:         100,
 	},
 }

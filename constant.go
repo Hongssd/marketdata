@@ -11,6 +11,7 @@ const (
 	OKX     Exchange = "OKX"
 	BYBIT   Exchange = "BYBIT"
 	GATE    Exchange = "GATE"
+	ASTER   Exchange = "ASTER"
 )
 
 func (e Exchange) String() string {
@@ -65,6 +66,17 @@ const (
 
 func (bat GateAccountType) String() string {
 	return string(bat)
+}
+
+type AsterAccountType string
+
+const (
+	ASTER_SPOT   AsterAccountType = "SPOT"
+	ASTER_FUTURE AsterAccountType = "FUTURE"
+)
+
+func (aat AsterAccountType) String() string {
+	return string(aat)
 }
 
 type BinanceInterval string
@@ -293,9 +305,63 @@ func initGateIntervalMillisecondMap() {
 	GateIntervalMillisecondMap.Store(GATE_INTERVAL_30D.String(), 30*24*60*60*1000)
 }
 
+type AsterInterval string
+
+const (
+	ASTER_INTERVAL_1s  AsterInterval = "1s"
+	ASTER_INTERVAL_1m  AsterInterval = "1m"
+	ASTER_INTERVAL_3m  AsterInterval = "3m"
+	ASTER_INTERVAL_5m  AsterInterval = "5m"
+	ASTER_INTERVAL_15m AsterInterval = "15m"
+	ASTER_INTERVAL_30m AsterInterval = "30m"
+	ASTER_INTERVAL_1h  AsterInterval = "1h"
+	ASTER_INTERVAL_2h  AsterInterval = "2h"
+	ASTER_INTERVAL_4h  AsterInterval = "4h"
+	ASTER_INTERVAL_6h  AsterInterval = "6h"
+	ASTER_INTERVAL_8h  AsterInterval = "8h"
+	ASTER_INTERVAL_12h AsterInterval = "12h"
+	ASTER_INTERVAL_1d  AsterInterval = "1d"
+	ASTER_INTERVAL_3d  AsterInterval = "3d"
+	ASTER_INTERVAL_1w  AsterInterval = "1w"
+	ASTER_INTERVAL_1M  AsterInterval = "1M"
+)
+
+func (i AsterInterval) String() string {
+	return string(i)
+}
+func (i AsterInterval) Millisecond() int64 {
+	m, ok := AsterIntervalMillisecondMap.Load(i.String())
+	if !ok {
+		return 0
+	}
+	return m
+}
+
+var AsterIntervalMillisecondMap = NewMySyncMap[string, int64]()
+
+func initAsterIntervalMillisecondMap() {
+	AsterIntervalMillisecondMap.Store(ASTER_INTERVAL_1s.String(), 1000)
+	AsterIntervalMillisecondMap.Store(ASTER_INTERVAL_1m.String(), 60*1000)
+	AsterIntervalMillisecondMap.Store(ASTER_INTERVAL_3m.String(), 3*60*1000)
+	AsterIntervalMillisecondMap.Store(ASTER_INTERVAL_5m.String(), 5*60*1000)
+	AsterIntervalMillisecondMap.Store(ASTER_INTERVAL_15m.String(), 15*60*1000)
+	AsterIntervalMillisecondMap.Store(ASTER_INTERVAL_30m.String(), 30*60*1000)
+	AsterIntervalMillisecondMap.Store(ASTER_INTERVAL_1h.String(), 60*60*1000)
+	AsterIntervalMillisecondMap.Store(ASTER_INTERVAL_2h.String(), 2*60*60*1000)
+	AsterIntervalMillisecondMap.Store(ASTER_INTERVAL_4h.String(), 4*60*60*1000)
+	AsterIntervalMillisecondMap.Store(ASTER_INTERVAL_6h.String(), 6*60*60*1000)
+	AsterIntervalMillisecondMap.Store(ASTER_INTERVAL_8h.String(), 8*60*60*1000)
+	AsterIntervalMillisecondMap.Store(ASTER_INTERVAL_12h.String(), 12*60*60*1000)
+	AsterIntervalMillisecondMap.Store(ASTER_INTERVAL_1d.String(), 24*60*60*1000)
+	AsterIntervalMillisecondMap.Store(ASTER_INTERVAL_3d.String(), 3*24*60*60*1000)
+	AsterIntervalMillisecondMap.Store(ASTER_INTERVAL_1w.String(), 7*24*60*60*1000)
+	AsterIntervalMillisecondMap.Store(ASTER_INTERVAL_1M.String(), 30*24*60*60*1000)
+}
+
 func init() {
 	initBinanceIntervalMillisecondMap()
 	initOkxIntervalMillisecondMap()
 	initBybitIntervalMillisecondMap()
 	initGateIntervalMillisecondMap()
+	initAsterIntervalMillisecondMap()
 }
