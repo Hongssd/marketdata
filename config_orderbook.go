@@ -72,6 +72,20 @@ type AsterOrderBookConfigBase struct {
 	InitOrderBookSize         int    //初始OrderBook档位
 }
 
+type SunxOrderBookConfig struct {
+	SwapConfig SunxOrderBookConfigBase
+}
+
+type SunxOrderBookConfigBase struct {
+	Level                     int   //深度档位
+	LimitRestCountPerMinute   int64 //每分钟请求次数
+	PerConnSubNum             int64 //每条链接订阅的数量
+	PerSubMaxLen              int   //每条链接每次订阅的最大数量
+	CallBackDepthLevel        int64 //回调深度档位
+	CallBackDepthTimeoutMilli int64 //超时毫秒数
+	InitOrderBookSize         int   //初始OrderBook档位
+}
+
 var BinanceOrderBookConfigDefault = BinanceOrderBookConfig{
 	SpotConfig: BinanceOrderBookConfigBase{
 		USpeed:                    "100ms",
@@ -179,6 +193,18 @@ var AsterOrderBookConfigDefault = AsterOrderBookConfig{
 	},
 	FutureConfig: AsterOrderBookConfigBase{
 		USpeed:                    "100ms",
+		LimitRestCountPerMinute:   500,
+		PerConnSubNum:             20,
+		PerSubMaxLen:              20,
+		CallBackDepthLevel:        20,
+		CallBackDepthTimeoutMilli: 5000,
+		InitOrderBookSize:         100,
+	},
+}
+
+var SunxOrderBookConfigDefault = SunxOrderBookConfig{
+	SwapConfig: SunxOrderBookConfigBase{
+		Level:                     20,
 		LimitRestCountPerMinute:   500,
 		PerConnSubNum:             20,
 		PerSubMaxLen:              20,

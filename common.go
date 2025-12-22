@@ -177,3 +177,19 @@ func AsterGetServerTimeDelta(accountType AsterAccountType) (int64, error) {
 		return 0, ErrorAccountType
 	}
 }
+
+func SunxGetServerTimeDelta(accountType SunxAccountType) (int64, error) {
+	t1 := time.Now().UnixMilli()
+	switch accountType {
+	case SUNX_SWAP:
+		res, err := sunx.NewPublicRestClient().NewPublicRestMarketDepth().ContractCode("BTC-USDT").Type("step0").Do()
+		if err != nil {
+			return 0, err
+		}
+		t2 := time.Now().UnixMilli()
+		delta := res.Ts - (t2+t1)/2
+		return -delta, nil
+	default:
+		return 0, ErrorAccountType
+	}
+}

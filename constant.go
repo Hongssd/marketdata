@@ -12,6 +12,7 @@ const (
 	BYBIT   Exchange = "BYBIT"
 	GATE    Exchange = "GATE"
 	ASTER   Exchange = "ASTER"
+	SUNX    Exchange = "SUNX"
 )
 
 func (e Exchange) String() string {
@@ -358,10 +359,60 @@ func initAsterIntervalMillisecondMap() {
 	AsterIntervalMillisecondMap.Store(ASTER_INTERVAL_1M.String(), 30*24*60*60*1000)
 }
 
+type SunxAccountType string
+
+const (
+	SUNX_SWAP = "swap"
+)
+
+func (sat SunxAccountType) String() string {
+	return string(sat)
+}
+
+type SunxInterval string
+
+const (
+	SUNX_INTERVAL_1m  SunxInterval = "1min"
+	SUNX_INTERVAL_5m  SunxInterval = "5min"
+	SUNX_INTERVAL_15m SunxInterval = "15min"
+	SUNX_INTERVAL_30m SunxInterval = "30min"
+	SUNX_INTERVAL_1h  SunxInterval = "60min"
+	SUNX_INTERVAL_4h  SunxInterval = "4hour"
+	SUNX_INTERVAL_1d  SunxInterval = "1day"
+	SUNX_INTERVAL_7d  SunxInterval = "1week"
+	SUNX_INTERVAL_30d SunxInterval = "1mon"
+)
+
+func (i SunxInterval) String() string {
+	return string(i)
+}
+func (i SunxInterval) Millisecond() int64 {
+	m, ok := SunxIntervalMillisecondMap.Load(i.String())
+	if !ok {
+		return 0
+	}
+	return m
+}
+
+var SunxIntervalMillisecondMap = NewMySyncMap[string, int64]()
+
+func initSunxIntervalMillisecondMap() {
+	SunxIntervalMillisecondMap.Store(SUNX_INTERVAL_1m.String(), 60*1000)
+	SunxIntervalMillisecondMap.Store(SUNX_INTERVAL_5m.String(), 5*60*1000)
+	SunxIntervalMillisecondMap.Store(SUNX_INTERVAL_15m.String(), 15*60*1000)
+	SunxIntervalMillisecondMap.Store(SUNX_INTERVAL_30m.String(), 30*60*1000)
+	SunxIntervalMillisecondMap.Store(SUNX_INTERVAL_1h.String(), 60*60*1000)
+	SunxIntervalMillisecondMap.Store(SUNX_INTERVAL_4h.String(), 4*60*60*1000)
+	SunxIntervalMillisecondMap.Store(SUNX_INTERVAL_1d.String(), 24*60*60*1000)
+	SunxIntervalMillisecondMap.Store(SUNX_INTERVAL_7d.String(), 7*24*60*60*1000)
+	SunxIntervalMillisecondMap.Store(SUNX_INTERVAL_30d.String(), 30*24*60*60*1000)
+}
+
 func init() {
 	initBinanceIntervalMillisecondMap()
 	initOkxIntervalMillisecondMap()
 	initBybitIntervalMillisecondMap()
 	initGateIntervalMillisecondMap()
 	initAsterIntervalMillisecondMap()
+	initSunxIntervalMillisecondMap()
 }
