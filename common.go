@@ -182,7 +182,7 @@ func SunxGetServerTimeDelta(accountType SunxAccountType) (int64, error) {
 	t1 := time.Now().UnixMilli()
 	switch accountType {
 	case SUNX_SWAP:
-		res, err := sunx.NewPublicRestClient().NewPublicRestMarketDepth().ContractCode("BTC-USDT").Type("step0").Do()
+		res, err := sunx.NewPublicRestClient().NewPublicRestMarketBBO().ContractCode("BTC-USDT").Do()
 		if err != nil {
 			return 0, err
 		}
