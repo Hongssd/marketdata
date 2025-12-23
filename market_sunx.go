@@ -44,6 +44,9 @@ func (sm *SunxMarketData) init() error {
 				return
 			}
 		}
+		sm.ServerTimeDeltaTimes++
+		sm.ServerTimeDeltaSum += serverTimeDelta
+		sm.ServerTimeDelta = sm.ServerTimeDeltaSum / sm.ServerTimeDeltaTimes
 	}
 	refresh()
 
