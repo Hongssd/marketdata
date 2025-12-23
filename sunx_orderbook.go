@@ -414,6 +414,7 @@ func (s *SunxOrderBook) saveSunxDepthOrderBook(result mysunxapi.WsDepthHighFreq)
 	if targetTs > now {
 		targetTs = now
 	}
+	// log.Info("targetTs: ", targetTs, " now: ", now, " serverTimeDelta: ", s.parent.ServerTimeDelta, " ts: ", ts)
 	if !ok {
 		preVersionId = 0
 	}
