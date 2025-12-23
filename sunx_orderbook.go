@@ -1,134 +1,82 @@
 package marketdata
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/Hongssd/mysunxapi"
-	"github.com/robfig/cron/v3"
-	"golang.org/x/sync/errgroup"
 )
 
 type SunxOrderBook struct {
-	parent        *SunxMarketData
-	SwapOrderBook *sunxOrderBookBase
-}
-
-type sunxOrderBookBase struct {
-	parent                    *SunxOrderBook
-	limitRestCountPerMinute   int64 //每分钟rest最大请求数
-	currentRestCount          int64 //当前rest请求数
-	level                     int   //深度档位
-	callBackDepthLevel        int64 //回调深度档位
-	callBackDepthTimeoutMilli int64 //回调深度超时时间
-	initOrderBookSize         int   //初始OrderBook档位
-	SunxWsClientBase
-	Exchange                  Exchange
-	AccountType               SunxAccountType
-	OrderBookCacheMap         *MySyncMap[string, *MySyncMap[int64, *mysunxapi.WsDepthHighFreq]]
-	OrderBookRBTreeMap        *MySyncMap[string, OrderBook]
-	OrderBookReadyUpdateIdMap *MySyncMap[string, int64]
-	OrderBookMap              *MySyncMap[string, *Depth]
-	OrderBookLastUpdateIdMap  *MySyncMap[string, int64]
-	WsClientMap               *MySyncMap[string, *mysunxapi.PublicWsStreamClient]
-	SubMap                    *MySyncMap[string, *mysunxapi.Subscription[mysunxapi.WsMarketDepthHighFreqReq, mysunxapi.WsDepthHighFreq]]
-	IsInitActionMu            *MySyncMap[string, *sync.Mutex]
-	CallBackMap               *MySyncMap[string, func(depth *Depth, err error)]
-}
-
-// 根据类型获取基础
-func (s *SunxOrderBook) getBaseMapFromAccountType(accountType SunxAccountType) (*sunxOrderBookBase, error) {
-	switch accountType {
-	case SUNX_SWAP:
-		return s.SwapOrderBook, nil
-	}
-	return nil, ErrorAccountType
+	parent                     *SunxMarketData
+	perConnSubNum              int64
+	perSubMaxLen               int
+	callBackDepthLevel         int
+	callBackDepthTimeoutMilli  int64
+	initOrderBookSize          int
+	Exchange                   Exchange
+	OrderBookRBTreeMap         *MySyncMap[string, OrderBook]
+	OrderBookLastVersionIdMap  *MySyncMap[string, int64]
+	OrderBookReadyVersionIdMap *MySyncMap[string, int64]
+	OrderBookMap               *MySyncMap[string, *Depth]
+	WsClientListMap            *MySyncMap[*mysunxapi.PublicWsStreamClient, *int64]
+	WsClientMap                *MySyncMap[string, *mysunxapi.PublicWsStreamClient]
+	SubMap                     *MySyncMap[string, *mysunxapi.Subscription[mysunxapi.WsMarketDepthHighFreqReq, mysunxapi.WsDepthHighFreq]]
+	CallBackMap                *MySyncMap[string, func(depth *Depth, err error)]
+	ReSubMuMap                 *MySyncMap[string, *sync.Mutex]
+	ReSubWsClientMap           *MySyncMap[*mysunxapi.PublicWsStreamClient, *sync.Mutex]
 }
 
 // 新建sunx深度基础
-func (s *SunxOrderBook) newSunxOrderBookBase(config SunxOrderBookConfigBase) *sunxOrderBookBase {
-	if config.PerSubMaxLen == 0 {
-		config.PerSubMaxLen = 10
-	}
+func (sm *SunxMarketData) newSunxOrderBook(config SunxOrderBookConfig) *SunxOrderBook {
 	if config.PerConnSubNum == 0 {
+		config.PerConnSubNum = 10
+	}
+
+	if config.PerSubMaxLen == 0 {
 		config.PerSubMaxLen = 50
 	}
-	return &sunxOrderBookBase{
-		Exchange: SUNX,
-		limitRestCountPerMinute: config.LimitRestCountPerMinute,
-		SunxWsClientBase: SunxWsClientBase{
-			perConnSubNum:   config.PerConnSubNum,
-			perSubMaxLen:    config.PerSubMaxLen,
-			WsClientListMap: GetPointer(NewMySyncMap[*mysunxapi.PublicWsStreamClient, *int64]()),
-		},
-		level:                     config.Level,
+
+	return &SunxOrderBook{
+		parent:                    sm,
+		perConnSubNum:             config.PerConnSubNum,
+		perSubMaxLen:              config.PerSubMaxLen,
 		callBackDepthLevel:        config.CallBackDepthLevel,
 		callBackDepthTimeoutMilli: config.CallBackDepthTimeoutMilli,
-		initOrderBookSize:         config.InitOrderBookSize,
-		OrderBookCacheMap:         GetPointer(NewMySyncMap[string, *MySyncMap[int64, *mysunxapi.WsDepthHighFreq]]()),
-		OrderBookRBTreeMap:        GetPointer(NewMySyncMap[string, OrderBook]()),
-		OrderBookReadyUpdateIdMap: GetPointer(NewMySyncMap[string, int64]()),
-		OrderBookMap:              GetPointer(NewMySyncMap[string, *Depth]()),
-		OrderBookLastUpdateIdMap:  GetPointer(NewMySyncMap[string, int64]()),
-		WsClientMap:               GetPointer(NewMySyncMap[string, *mysunxapi.PublicWsStreamClient]()),
-		SubMap:                    GetPointer(NewMySyncMap[string, *mysunxapi.Subscription[mysunxapi.WsMarketDepthHighFreqReq, mysunxapi.WsDepthHighFreq]]()),
-		IsInitActionMu:            GetPointer(NewMySyncMap[string, *sync.Mutex]()),
-		CallBackMap:               GetPointer(NewMySyncMap[string, func(depth *Depth, err error)]()),
+
+		Exchange:                   SUNX,
+		OrderBookRBTreeMap:         GetPointer(NewMySyncMap[string, OrderBook]()),
+		OrderBookLastVersionIdMap:  GetPointer(NewMySyncMap[string, int64]()),
+		OrderBookReadyVersionIdMap: GetPointer(NewMySyncMap[string, int64]()),
+		OrderBookMap:               GetPointer(NewMySyncMap[string, *Depth]()),
+		WsClientListMap:            GetPointer(NewMySyncMap[*mysunxapi.PublicWsStreamClient, *int64]()),
+		WsClientMap:                GetPointer(NewMySyncMap[string, *mysunxapi.PublicWsStreamClient]()),
+		SubMap:                     GetPointer(NewMySyncMap[string, *mysunxapi.Subscription[mysunxapi.WsMarketDepthHighFreqReq, mysunxapi.WsDepthHighFreq]]()),
+		CallBackMap:                GetPointer(NewMySyncMap[string, func(depth *Depth, err error)]()),
+		ReSubMuMap:                 GetPointer(NewMySyncMap[string, *sync.Mutex]()),
+		ReSubWsClientMap:           GetPointer(NewMySyncMap[*mysunxapi.PublicWsStreamClient, *sync.Mutex]()),
 	}
 }
 
-// 初始化
-func (s *SunxOrderBook) init() {
-	c := cron.New(cron.WithSeconds())
-	//每隔1分钟刷新一次请求次数
-	_, err := c.AddFunc("0 */1 * * * *", func() {
-		atomic.StoreInt64(&s.SwapOrderBook.currentRestCount, 0)
-	})
-	if err != nil {
-		log.Error(err)
-		return
-	}
-	c.Start()
-}
-
-// 获取当前或新建ws客户端
-func (s *SunxOrderBook) GetCurrentOrNewWsClient(accountType SunxAccountType) (*mysunxapi.PublicWsStreamClient, error) {
-	switch accountType {
-	case SUNX_SWAP:
-		return s.SwapOrderBook.GetCurrentOrNewWsClient(accountType)
-	}
-	return nil, ErrorAccountType
-}
-
-// 封装好的获取深度方法
-func (s *SunxOrderBook) GetDepth(SunxAccountType SunxAccountType, symbol string, level int, timeoutMilli int64) (*Depth, error) {
-	bmap, err := s.getBaseMapFromAccountType(SunxAccountType)
-	if err != nil {
-		return nil, err
-	}
-
-	depth, ok := bmap.OrderBookMap.Load(symbol)
+func (s *SunxOrderBook) GetDepth(symbol string, level int, timeoutMilli int64) (*Depth, error) {
+	depth, ok := s.OrderBookMap.Load(symbol)
 	if !ok {
 		err := fmt.Errorf("symbol:%s depth not found", symbol)
 		return nil, err
 	}
-	orderBook, ok := bmap.OrderBookRBTreeMap.Load(symbol)
+	orderBook, ok := s.OrderBookRBTreeMap.Load(symbol)
 	if !ok {
-		err := fmt.Errorf("symbol:%s bidMap not found", symbol)
-		log.Error(err)
+		err := fmt.Errorf("symbol:%s orderBook not found", symbol)
 		return nil, err
 	}
 	newDepth, err := orderBook.LoadToDepth(depth, level)
 	if err != nil {
 		return nil, err
 	}
-	//如果超时限制大于0 判断深度是否超时
 	if timeoutMilli > 0 && time.Now().UnixMilli()-newDepth.Timestamp > timeoutMilli {
 		err := fmt.Errorf("symbol:%s depth timeout", symbol)
 		return newDepth, err
@@ -136,18 +84,123 @@ func (s *SunxOrderBook) GetDepth(SunxAccountType SunxAccountType, symbol string,
 	return newDepth, nil
 }
 
-// 订阅sunx深度底层执行
-func (s *sunxOrderBookBase) subscribeSunxDepthMultiple(sunxWsClient *mysunxapi.PublicWsStreamClient, symbols []string, callback func(depth *Depth, err error)) error {
-	sunxSub, err := sunxWsClient.SubscribeMarketDepthHighFreq(symbols, []int{s.level}, true)
+func (s *SunxOrderBook) GetCurrentOrNewWsClient() (*mysunxapi.PublicWsStreamClient, error) {
+	return s.parent.GetPublicCurrentOrNewWsClient(s.perConnSubNum, s.WsClientListMap)
+}
+func (s *SunxOrderBook) SubscribeOrderBook(Symbol string) error {
+	return s.SubscribeOrderBookWithCallBack(Symbol, nil)
+}
+func (s *SunxOrderBook) SubscribeOrderBooks(symbols []string) error {
+	return s.SubscribeOrderBooksWithCallBack(symbols, nil)
+}
+func (s *SunxOrderBook) SubscribeOrderBookWithCallBack(Symbol string, callback func(depth *Depth, err error)) error {
+	return s.SubscribeOrderBooksWithCallBack([]string{Symbol}, callback)
+}
+func (s *SunxOrderBook) SubscribeOrderBooksWithCallBack(symbols []string, callback func(depth *Depth, err error)) error {
+	log.Infof("Sunx开始订阅增量OrderBook深度，交易对数:%d, 总订阅数:%d", len(symbols), len(symbols))
+	LEN := s.perSubMaxLen
+	if len(symbols) > LEN {
+		for i := 0; i < len(symbols); i += LEN {
+			end := i + LEN
+			if end > len(symbols) {
+				end = len(symbols)
+			}
+			tempSymbols := symbols[i:end]
+			client, err := s.GetCurrentOrNewWsClient()
+			if err != nil {
+				return err
+			}
+			err = s.SubscribeOrderBooks(tempSymbols)
+			if err != nil {
+				return err
+			}
+			currentCount, ok := s.WsClientListMap.Load(client)
+			if !ok {
+				return errors.New("WsClientListMap Load error")
+			}
+			log.Infof("OrderBook深度分批订阅成功，此次订阅交易对:%v, 总数:%d，当前链接总订阅数:%d, 等待1秒后继续订阅...", tempSymbols, len(tempSymbols), *currentCount)
+			time.Sleep(1000 * time.Millisecond)
+		}
+	} else {
+		client, err := s.GetCurrentOrNewWsClient()
+		if err != nil {
+			return err
+		}
+		err = s.subscribeSunxDepthMultiple(client, symbols, callback)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *SunxOrderBook) subscribeSunxDepthMultiple(sunxWsClient *mysunxapi.PublicWsStreamClient, symbols []string, callback func(depth *Depth, err error)) error {
+	if _, ok := s.ReSubWsClientMap.Load(sunxWsClient); !ok {
+		s.ReSubWsClientMap.Store(sunxWsClient, &sync.Mutex{})
+	}
+	sunxSub, err := sunxWsClient.SubscribeMarketDepthHighFreq(symbols, []int{s.callBackDepthLevel}, true)
 	if err != nil {
 		log.Error(err)
 		return err
 	}
 	for _, symbol := range symbols {
-		symbolKey := symbol
-		s.WsClientMap.Store(symbolKey, sunxWsClient)
-		s.SubMap.Store(symbolKey, sunxSub)
-		s.CallBackMap.Store(symbolKey, callback)
+		s.WsClientMap.Store(symbol, sunxWsClient)
+		s.SubMap.Store(symbol, sunxSub)
+		s.CallBackMap.Store(symbol, callback)
+		if _, ok := s.ReSubMuMap.Load(symbol); !ok {
+			s.ReSubMuMap.Store(symbol, &sync.Mutex{})
+		}
+	}
+
+	reSubThis := func(symbol string) {
+		if mu, ok := s.ReSubWsClientMap.Load(sunxWsClient); ok {
+			mu.Lock()
+			defer mu.Unlock()
+		} else {
+			log.Error("resubscribe wsclient mutex not found")
+			return
+		}
+		if mu, ok := s.ReSubMuMap.Load(symbol); ok {
+			if mu.TryLock() {
+				defer mu.Unlock()
+			} else {
+				log.Info("resubscribe symbol:", symbol, " mutex is locked")
+				return
+			}
+		} else {
+			log.Error("resubscribe symbol:", symbol, " mutex not found")
+			return
+		}
+		_, err := sunxWsClient.SubscribeMarketDepthHighFreq([]string{symbol}, []int{s.callBackDepthLevel}, false)
+		if err != nil {
+			log.Error(err)
+			return
+		}
+		s.WsClientMap.Delete(symbol)
+		s.SubMap.Delete(symbol)
+		s.CallBackMap.Delete(symbol)
+		if count, ok := s.WsClientListMap.Load(sunxWsClient); ok {
+			atomic.AddInt64(count, -1)
+		}
+		hasSub := false
+		s.SubMap.Range(func(k string, v *mysunxapi.Subscription[mysunxapi.WsMarketDepthHighFreqReq, mysunxapi.WsDepthHighFreq]) bool {
+			if v == sunxSub {
+				hasSub = true
+				return false
+			}
+			return true
+		})
+		if !hasSub {
+			log.Info("上层订阅已关闭: ", sunxSub.SubReqs)
+			sunxSub.CloseChan() <- struct{}{}
+		}
+
+		err = s.subscribeSunxDepthMultiple(sunxWsClient, []string{symbol}, callback)
+		if err != nil {
+			log.Error(err)
+			return
+		}
 	}
 
 	go func() {
@@ -158,70 +211,73 @@ func (s *sunxOrderBookBase) subscribeSunxDepthMultiple(sunxWsClient *mysunxapi.P
 				if callback != nil {
 					callback(nil, err)
 				}
-			case r := <-sunxSub.ResultChan():
-				result := r.Tick
+			case result := <-sunxSub.ResultChan():
 				split := strings.Split(result.Ch, ".")
 				if len(split) < 2 {
-					log.Error("subscribe err, r.ch is empty")
+					log.Error("subscribe err, r.ch could be empty")
 					continue
 				}
 				Symbol := split[1]
+				switch result.Tick.Event {
+				case "snapshot":
+					//首次接收到推送全量数据，清除其他数据，并直接初始化
+					s.OrderBookReadyVersionIdMap.Delete(Symbol)
+					s.OrderBookMap.Delete(Symbol)
+					s.OrderBookRBTreeMap.Delete(Symbol)
+					s.initSunxDepthOrderBook(result)
+					s.OrderBookLastVersionIdMap.Store(Symbol, result.Tick.Version)
+					// log.Infof("snapshot: %v", result)
+				case "update":
+					//增量数据更新，需要进行校验
+					_, err := s.checkSunxDepthIsReady(Symbol)
+					if err != nil {
+						//首次全量数据丢失，直接重新订阅
+						go reSubThis(Symbol)
+						continue
+					}
+					// log.Infof("update: %v", result)
+					err = s.saveSunxDepthOrderBook(result)
+					if err != nil {
+						log.Error(err)
+						//保存增量数据失败，直接重新订阅
+						go reSubThis(Symbol)
+						continue
+					}
 
-				// 检测深度是否初始化
-				_, err := s.checkSunxDepthIsReady(Symbol)
-				if err != nil {
-					// 直接存入深度缓存
-					s.saveSunxDepthCache(r)
-					continue
-				}
+					if callback == nil || s.callBackDepthLevel == 0 {
+						continue
+					}
 
-				// 检测丢包 pass
-
-				// 保存至OrderBook
-				err = s.saveSunxDepthOrderBook(r)
-				if err != nil {
-					log.Error(err)
-					continue
+					depth, err := s.GetDepth(Symbol, int(s.callBackDepthLevel), s.callBackDepthTimeoutMilli)
+					if err != nil {
+						callback(nil, err)
+						continue
+					}
+					callback(depth, err)
+				default:
+					//定量深度推送，直接覆盖全部
+					s.initAndClearSunxDepthOrderBook(result)
+					err = s.saveSunxDepthOrderBook(result)
+					if err != nil {
+						log.Error(err)
+						//保存增量数据失败，直接重新订阅
+						go reSubThis(Symbol)
+						continue
+					}
+					if callback == nil || s.callBackDepthLevel == 0 {
+						continue
+					}
+					depth, err := s.GetDepth(Symbol, int(s.callBackDepthLevel), s.callBackDepthTimeoutMilli)
+					if err != nil {
+						callback(nil, err)
+						continue
+					}
+					callback(depth, err)
 				}
-
-				if callback == nil || s.callBackDepthLevel == 0 {
-					continue
-				}
-				depth, err := s.parent.GetDepth(s.AccountType, Symbol, int(s.callBackDepthLevel), s.callBackDepthTimeoutMilli)
-				if err != nil {
-					callback(nil, err)
-					continue
-				}
-				depth.UId, depth.PreUId = s.GetUidAndPreUid(r, Symbol)
-				callback(depth, err)
 			case <-sunxSub.CloseChan():
 				log.Info("订阅已关闭: ", sunxSub.SubReqs)
 				return
 			}
-		}
-	}()
-
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
-		defer cancel()
-		// 创建一个新的Group
-		g, ctx := errgroup.WithContext(ctx)
-		for _, symbol := range symbols {
-			symbol := symbol
-			g.Go(func() error {
-				// 初始化深度池
-				err = s.initSunxDepthFunc(symbol)
-				if err != nil {
-					log.Error(err)
-					return err
-				}
-				return nil
-			})
-		}
-
-		if err := g.Wait(); err != nil {
-			log.Error(err)
-			return
 		}
 	}()
 
@@ -236,32 +292,8 @@ func (s *sunxOrderBookBase) subscribeSunxDepthMultiple(sunxWsClient *mysunxapi.P
 	return nil
 }
 
-// 初始化Sunx深度
-func (s *sunxOrderBookBase) initSunxDepthFunc(symbol string) error {
-	mu, ok := s.IsInitActionMu.Load(symbol)
-	if !ok {
-		mu = &sync.Mutex{}
-		s.IsInitActionMu.Store(symbol, mu)
-	}
-	if mu.TryLock() {
-		defer mu.Unlock()
-	} else {
-		return nil
-	}
-	err := s.initSunxDepthOrderBook(symbol)
-	for err != nil {
-		log.Error(err)
-		time.Sleep(time.Second * 1)
-		log.Info("重新初始化Sunx深度: ", symbol)
-		err = s.initSunxDepthOrderBook(symbol)
-	}
-	//初始化完毕，将缓存保存至OrderBook
-	return s.saveSunxDepthOrderBookFromCache(symbol)
-}
-
-// 检测深度是否准备好
-func (s *sunxOrderBookBase) checkSunxDepthIsReady(Symbol string) (int64, error) {
-	readyId, isReady := s.OrderBookReadyUpdateIdMap.Load(Symbol)
+func (s *SunxOrderBook) checkSunxDepthIsReady(Symbol string) (int64, error) {
+	readyId, isReady := s.OrderBookReadyVersionIdMap.Load(Symbol)
 	if !isReady {
 		err := fmt.Errorf("%s 深度未准备好", Symbol)
 		return 0, err
@@ -269,121 +301,13 @@ func (s *sunxOrderBookBase) checkSunxDepthIsReady(Symbol string) (int64, error) 
 	return readyId, nil
 }
 
-// 初始化深度
-func (s *sunxOrderBookBase) initSunxDepthOrderBook(symbol string) error {
-	if atomic.LoadInt64(&s.currentRestCount) >= s.limitRestCountPerMinute {
-		return fmt.Errorf("Sunxrest请求次数超出限制: %d >= %d", atomic.LoadInt64(&s.currentRestCount), s.limitRestCountPerMinute)
-	}
-	atomic.AddInt64(&s.currentRestCount, 1)
-	orderBook, ok := s.OrderBookRBTreeMap.Load(symbol)
-	if !ok {
-		orderBook = NewOrderBook()
-		s.OrderBookRBTreeMap.Store(symbol, orderBook)
-	}
-	switch s.AccountType {
-	case SUNX_SWAP:
-		//重新初始化
-		res, err := sunx.NewPublicRestClient().NewPublicRestMarketDepth().
-			ContractCode(symbol).Type("step0").Do()
-		if err != nil {
-			log.Error(err)
-			return err
-		}
-		depth := res.Data
-		// 保存至OrderBook
-		bidPrices := make([]float64, 0, len(depth.Bids))
-		bidQuantities := make([]float64, 0, len(depth.Bids))
-		askPrices := make([]float64, 0, len(depth.Asks))
-		askQuantities := make([]float64, 0, len(depth.Asks))
-		for _, bid := range depth.Bids {
-			bidPrices = append(bidPrices, bid.Price)
-			bidQuantities = append(bidQuantities, bid.Volume)
-		}
-		for _, ask := range depth.Asks {
-			askPrices = append(askPrices, ask.Price)
-			askQuantities = append(askQuantities, ask.Volume)
-		}
-		orderBook.PutBidLevels(bidPrices, bidQuantities)
-		orderBook.PutAskLevels(askPrices, askQuantities)
-		s.OrderBookLastUpdateIdMap.Store(symbol, depth.Id)
-
-		log.Infof("[%s#%s] 初始化深度成功: %s ID[%d]\n深度[%v]", s.Exchange, s.AccountType, symbol, depth.Id, depth)
-	}
-	return nil
-}
-
-// 将Depth缓存保存至OrderBook
-func (s *sunxOrderBookBase) saveSunxDepthOrderBookFromCache(symbol string) error {
-	baseId, ok := s.OrderBookLastUpdateIdMap.Load(symbol)
-	if !ok {
-		return fmt.Errorf("%s baseId not found", symbol)
-	}
-
-	//读取缓存到OrderBook
-	cacheMap, ok := s.OrderBookCacheMap.Load(symbol)
-	if !ok {
-		newMap := NewMySyncMap[int64, *mysunxapi.WsDepthHighFreq]()
-		cacheMap = &newMap
-		s.OrderBookCacheMap.Store(symbol, cacheMap)
-	}
-
-	//从Map中重新读取缓存
-	var cacheList []mysunxapi.WsDepthHighFreq
-	cacheMap.Range(func(k int64, v *mysunxapi.WsDepthHighFreq) bool {
-		if v.Tick.Id > baseId {
-			cacheList = append(cacheList, *v)
-		}
-		return true
-	})
-
-	// 排序缓存
-	sort.Slice(cacheList, func(i, j int) bool {
-		return cacheList[i].Tick.Id < cacheList[j].Tick.Id
-	})
-
-	for _, v := range cacheList {
-		err := s.saveSunxDepthOrderBook(v)
-		if err != nil {
-			log.Error(err)
-			return err
-		}
-		baseId = v.Tick.Id
-	}
-
-	if _, ok := s.OrderBookRBTreeMap.Load(symbol); ok {
-		s.OrderBookReadyUpdateIdMap.Store(symbol, baseId)
-	}
-
-	return nil
-}
-
-// 将Depth缓存
-func (s *sunxOrderBookBase) saveSunxDepthCache(result mysunxapi.WsDepthHighFreq) {
-	split := strings.Split(result.Tick.Ch, ".")
+func (s *SunxOrderBook) initSunxDepthOrderBook(result mysunxapi.WsDepthHighFreq) {
+	split := strings.Split(result.Ch, ".")
 	if len(split) < 2 {
-		log.Error("subscribe err, r.ch is empty")
+		log.Error("subscribe err, r.ch could be empty")
 		return
 	}
-	symbol := split[1]
-	cacheMap, ok := s.OrderBookCacheMap.Load(symbol)
-	if !ok {
-		newMap := NewMySyncMap[int64, *mysunxapi.WsDepthHighFreq]()
-		cacheMap = &newMap
-		s.OrderBookCacheMap.Store(symbol, cacheMap)
-	}
-	cacheMap.Store(result.Tick.Id, &result)
-}
-
-// 将Depth保存至OrderBook
-func (s *sunxOrderBookBase) saveSunxDepthOrderBook(result mysunxapi.WsDepthHighFreq) error {
-	split := strings.Split(result.Tick.Ch, ".")
-	if len(split) < 2 {
-		return fmt.Errorf("subscribe err, r.ch is empty")
-	}
 	Symbol := split[1]
-
-	s.OrderBookLastUpdateIdMap.Store(Symbol, result.Tick.Id)
-
 	orderBook, ok := s.OrderBookRBTreeMap.Load(Symbol)
 	if !ok {
 		orderBook = NewOrderBook()
@@ -396,127 +320,127 @@ func (s *sunxOrderBookBase) saveSunxDepthOrderBook(result mysunxapi.WsDepthHighF
 	askQuantities := make([]float64, 0, len(result.Tick.Asks))
 
 	for _, bid := range result.Tick.Bids {
-		bidPrices = append(bidPrices, bid.Price)
-		bidQuantities = append(bidQuantities, bid.Volume)
+		p := bid.Price
+		q := bid.Volume
+		bidPrices = append(bidPrices, p)
+		bidQuantities = append(bidQuantities, q)
 	}
+
 	for _, ask := range result.Tick.Asks {
-		askPrices = append(askPrices, ask.Price)
-		askQuantities = append(askQuantities, ask.Volume)
+		p := ask.Price
+		q := ask.Volume
+		askPrices = append(askPrices, p)
+		askQuantities = append(askQuantities, q)
 	}
 
 	orderBook.PutBidLevels(bidPrices, bidQuantities)
 	orderBook.PutAskLevels(askPrices, askQuantities)
 
-	UId, PreUId := s.GetUidAndPreUid(result, Symbol)
+	s.OrderBookReadyVersionIdMap.Store(Symbol, result.Tick.Version)
+	s.OrderBookLastVersionIdMap.Store(Symbol, result.Tick.Version)
+}
+
+func (s *SunxOrderBook) initAndClearSunxDepthOrderBook(result mysunxapi.WsDepthHighFreq) {
+	split := strings.Split(result.Ch, ".")
+	if len(split) < 2 {
+		log.Error("subscribe err, r.ch could be empty")
+		return
+	}
+	Symbol := split[1]
+	orderBook, ok := s.OrderBookRBTreeMap.Load(Symbol)
+	if !ok {
+		orderBook = NewOrderBook()
+		s.OrderBookRBTreeMap.Store(Symbol, orderBook)
+	}
+	orderBook.ClearAll()
+}
+
+func (s *SunxOrderBook) saveSunxDepthOrderBook(result mysunxapi.WsDepthHighFreq) error {
+	split := strings.Split(result.Ch, ".")
+	if len(split) < 2 {
+		log.Error("subscribe err, r.ch could be empty")
+		return nil
+	}
+	Symbol := split[1]
+
+	preVersionId, ok := s.OrderBookLastVersionIdMap.Load(Symbol)
+	if ok {
+		if result.Tick.Version > preVersionId {
+			//正常推送
+		} else if result.Tick.Version == preVersionId {
+			//无更新
+			return nil
+		} else if result.Tick.Version < preVersionId || preVersionId+1 != result.Tick.Version {
+			//序列重置
+			s.OrderBookReadyVersionIdMap.Delete(Symbol)
+			s.OrderBookLastVersionIdMap.Delete(Symbol)
+			s.OrderBookMap.Delete(Symbol)
+			s.OrderBookRBTreeMap.Delete(Symbol)
+			return fmt.Errorf("%s 序列重置，需要重新订阅", Symbol)
+		}
+	}
+	orderBook, ok := s.OrderBookRBTreeMap.Load(Symbol)
+	if !ok {
+		orderBook = NewOrderBook()
+		s.OrderBookRBTreeMap.Store(Symbol, orderBook)
+	}
+	if orderBook == nil {
+		return nil
+	}
+
+	bidPrices := make([]float64, 0, len(result.Tick.Bids))
+	bidQuantities := make([]float64, 0, len(result.Tick.Bids))
+	askPrices := make([]float64, 0, len(result.Tick.Asks))
+	askQuantities := make([]float64, 0, len(result.Tick.Asks))
+
+	for _, bid := range result.Tick.Bids {
+		p := bid.Price
+		q := bid.Volume
+		bidPrices = append(bidPrices, p)
+		bidQuantities = append(bidQuantities, q)
+	}
+	for _, ask := range result.Tick.Asks {
+		p := ask.Price
+		q := ask.Volume
+		askPrices = append(askPrices, p)
+		askQuantities = append(askQuantities, q)
+	}
+	orderBook.PutBidLevels(bidPrices, bidQuantities)
+	orderBook.PutAskLevels(askPrices, askQuantities)
+
 	now := time.Now().UnixMilli()
-	targetTs := result.Tick.Ts + s.parent.parent.GetServerTimeDelta()
+	ts := result.Tick.Ts
+	targetTs := ts + s.parent.ServerTimeDelta
 	if targetTs > now {
 		targetTs = now
 	}
+	if !ok {
+		preVersionId = 0
+	}
+
 	depth := &Depth{
-		UId:         UId,
-		PreUId:      PreUId,
-		AccountType: string(s.AccountType),
+		UId:         result.Tick.Version,
+		PreUId:      preVersionId,
+		AccountType: SUNX_SWAP,
 		Exchange:    string(s.Exchange),
 		Symbol:      Symbol,
 		Timestamp:   targetTs,
 	}
 	s.OrderBookMap.Store(Symbol, depth)
-
+	s.OrderBookLastVersionIdMap.Store(Symbol, result.Tick.Version)
 	return nil
-}
-
-func (s *sunxOrderBookBase) GetUidAndPreUid(result mysunxapi.WsDepthHighFreq, symbol string) (int64, int64) {
-	UId := result.Tick.Id
-	// 从 OrderBookMap 中查找该 symbol 上一次缓存的 Depth 数据
-	PreUId := int64(0)
-	if lastDepth, ok := s.OrderBookMap.Load(symbol); ok && lastDepth != nil {
-		PreUId = lastDepth.UId
-	}
-	return UId, PreUId
-}
-
-// 订阅深度
-func (s *SunxOrderBook) SubscribeSunxOrderBook(accountType SunxAccountType, symbol string) error {
-	return s.SubscribeSunxOrderBooksWithCallBack(accountType, []string{symbol}, nil)
-}
-
-// 批量订阅深度
-func (s *SunxOrderBook) SubscribeSunxOrderBooks(accountType SunxAccountType, symbols []string) error {
-	return s.SubscribeSunxOrderBooksWithCallBack(accountType, symbols, nil)
-}
-
-// 订阅深度并带上回调
-func (s *SunxOrderBook) SubscribeSunxOrderBookWithCallBack(accountType SunxAccountType, symbol string, callback func(depth *Depth, err error)) error {
-	return s.SubscribeSunxOrderBooksWithCallBack(accountType, []string{symbol}, callback)
-}
-
-// 批量订阅深度并带上回调
-func (s *SunxOrderBook) SubscribeSunxOrderBooksWithCallBack(accountType SunxAccountType, symbols []string, callback func(depth *Depth, err error)) error {
-	log.Infof("开始订阅Sunx深度%s，交易对数:%d, 总订阅数:%d", accountType, len(symbols), len(symbols))
-
-	var currentSunxOrderBookBase *sunxOrderBookBase
-
-	switch accountType {
-	case SUNX_SWAP:
-		currentSunxOrderBookBase = s.SwapOrderBook
-	default:
-		return ErrorAccountType
-	}
-
-	LEN := currentSunxOrderBookBase.perSubMaxLen
-	if len(symbols) > LEN {
-		for i := 0; i < len(symbols); i += LEN {
-			end := i + LEN
-			if end > len(symbols) {
-				end = len(symbols)
-			}
-			tempSymbols := symbols[i:end]
-			client, err := s.GetCurrentOrNewWsClient(accountType)
-			if err != nil {
-				return err
-			}
-			err = currentSunxOrderBookBase.subscribeSunxDepthMultiple(client, tempSymbols, callback)
-			if err != nil {
-				return err
-			}
-			currentCount, ok := currentSunxOrderBookBase.WsClientListMap.Load(client)
-			if !ok {
-				return errors.New("WsClientListMap Load error")
-			}
-			log.Infof("Sunx深度%s分批订阅成功，此次订阅交易对:%v, 总数:%d，当前链接总订阅数:%d, 等待1秒后继续订阅...", accountType, tempSymbols, len(tempSymbols), *currentCount)
-			time.Sleep(1000 * time.Millisecond)
-		}
-	} else {
-		client, err := s.GetCurrentOrNewWsClient(accountType)
-		if err != nil {
-			return err
-		}
-		err = currentSunxOrderBookBase.subscribeSunxDepthMultiple(client, symbols, callback)
-		if err != nil {
-			return err
-		}
-	}
-
-	log.Infof("Sunx深度订阅结束，交易对数:%d,  总订阅数:%d", len(symbols), len(symbols))
-
-	return nil
-}
-
-func (s *sunxOrderBookBase) Close() {
-	s.SunxWsClientBase.close()
-
-	s.OrderBookCacheMap.Clear()
-	s.OrderBookRBTreeMap.Clear()
-	s.OrderBookReadyUpdateIdMap.Clear()
-	s.OrderBookMap.Clear()
-	s.OrderBookLastUpdateIdMap.Clear()
-	s.WsClientMap.Clear()
-	s.SubMap.Clear()
-	s.IsInitActionMu.Clear()
-	s.CallBackMap.Clear()
 }
 
 func (s *SunxOrderBook) Close() {
-	s.SwapOrderBook.Close()
+	s.WsClientListMap.Range(func(k *mysunxapi.PublicWsStreamClient, v *int64) bool {
+		err := k.Close()
+		if err != nil {
+			log.Error(err)
+		}
+		return true
+	})
+	s.OrderBookRBTreeMap.Clear()
+	s.OrderBookReadyVersionIdMap.Clear()
+	s.OrderBookLastVersionIdMap.Clear()
+	s.OrderBookMap.Clear()
 }

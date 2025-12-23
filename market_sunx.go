@@ -76,13 +76,8 @@ func NewSunxMarketData(accessKey, secretKey string) (*SunxMarketData, error) {
 }
 
 func (sm *SunxMarketData) InitSunxOrderBook(config SunxOrderBookConfig) error {
-	s := &SunxOrderBook{}
-	s.SwapOrderBook = s.newSunxOrderBookBase(config.SwapConfig)
-	s.SwapOrderBook.AccountType = SUNX_SWAP
-	s.SwapOrderBook.parent = s
-	s.init()
+	s := sm.newSunxOrderBook(config)
 	sm.SunxOrderBook = s
-	s.parent = sm
 	return nil
 }
 
@@ -114,6 +109,33 @@ func (sm *SunxMarketData) InitSunxAggTrade(config SunxAggTradeConfig) error {
 	sm.SunxAggTrade = s
 	s.parent = sm
 	return nil
+}
+
+func (sm *SunxMarketData) GetPublicCurrentOrNewWsClient(perConnSubNum int64, WsClientListMap *MySyncMap[*mysunxapi.PublicWsStreamClient, *int64]) (*mysunxapi.PublicWsStreamClient, error) {
+	var wsClient *mysunxapi.PublicWsStreamClient
+	var err error
+	WsClientListMap.Range(func(k *mysunxapi.PublicWsStreamClient, v *int64) bool {
+		if *v < perConnSubNum {
+			wsClient = k
+			return false
+		}
+		return true
+	})
+	if wsClient == nil {
+		wsClient = sunx.NewPublicWsStreamClient(mysunxapi.WsAPITypeMarket)
+		err = wsClient.OpenConn()
+		if err != nil {
+			return nil, err
+		}
+		initCount := int64(0)
+		WsClientListMap.Store(wsClient, &initCount)
+		if WsClientListMap.Length() > 1 {
+			log.Infof("当前链接订阅权重已用完，建立新的Ws链接，当前链接数:%d ...", WsClientListMap.Length())
+		} else {
+			log.Info("首次建立新的Ws链接...")
+		}
+	}
+	return wsClient, nil
 }
 
 // Ticker

@@ -1,6 +1,9 @@
 package marketdata
 
-import "github.com/Hongssd/myokxapi"
+import (
+	"github.com/Hongssd/myokxapi"
+	"github.com/Hongssd/mysunxapi"
+)
 
 type BinanceOrderBookConfig struct {
 	SpotConfig   BinanceOrderBookConfigBase
@@ -73,17 +76,11 @@ type AsterOrderBookConfigBase struct {
 }
 
 type SunxOrderBookConfig struct {
-	SwapConfig SunxOrderBookConfigBase
-}
-
-type SunxOrderBookConfigBase struct {
-	Level                     int   //深度档位
-	LimitRestCountPerMinute   int64 //每分钟请求次数
-	PerConnSubNum             int64 //每条链接订阅的数量
-	PerSubMaxLen              int   //每条链接每次订阅的最大数量
-	CallBackDepthLevel        int64 //回调深度档位
-	CallBackDepthTimeoutMilli int64 //超时毫秒数
-	InitOrderBookSize         int   //初始OrderBook档位
+	WsBooksType               mysunxapi.WsOrderBookSize
+	PerConnSubNum             int64                     //每条链接订阅的数量
+	PerSubMaxLen              int                       //每条链接每次订阅的最大数量
+	CallBackDepthLevel        int                       //回调深度档位
+	CallBackDepthTimeoutMilli int64                     //超时毫秒数
 }
 
 var BinanceOrderBookConfigDefault = BinanceOrderBookConfig{
@@ -203,13 +200,9 @@ var AsterOrderBookConfigDefault = AsterOrderBookConfig{
 }
 
 var SunxOrderBookConfigDefault = SunxOrderBookConfig{
-	SwapConfig: SunxOrderBookConfigBase{
-		Level:                     20,
-		LimitRestCountPerMinute:   500,
-		PerConnSubNum:             20,
-		PerSubMaxLen:              20,
-		CallBackDepthLevel:        20,
-		CallBackDepthTimeoutMilli: 5000,
-		InitOrderBookSize:         100,
-	},
+	WsBooksType:               mysunxapi.WS_ORDER_BOOK_SIZE_20,
+	PerConnSubNum:             20,
+	PerSubMaxLen:              20,
+	CallBackDepthLevel:        20,
+	CallBackDepthTimeoutMilli: 5000,
 }
