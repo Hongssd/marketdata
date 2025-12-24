@@ -183,7 +183,7 @@ func (b *GateOrderBook) ViewDepth(GateAccountType GateAccountType, symbol string
 }
 
 // 订阅Gate深度底层执行
-func (b *gateOrderBookBase) subscribeGateDepthMultiple(gateWsClient *mygateapi.WsStreamClient, symbols []string, callback func(depth *Depth, err error)) error {
+func (b *gateOrderBookBase) subscribeGateDepthMultipleWithZeroCopy(gateWsClient *mygateapi.WsStreamClient, symbols []string, callback func(depth *Depth, err error), isZeroCopy bool) error {
 	if b.AccountType == GATE_SPOT || b.AccountType == GATE_DELIVERY {
 		b.uSpeed = "100ms"
 	}
@@ -258,15 +258,25 @@ func (b *gateOrderBookBase) subscribeGateDepthMultiple(gateWsClient *mygateapi.W
 				if callback == nil || b.callBackDepthLevel == 0 {
 					continue
 				}
-				//高性能查询盘口并执行回调
-				err = b.parent.ViewDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli, func(d *Depth) error {
-					d.UId, d.PreUId = b.GetUidAndPreUid(result)
-					callback(d, nil)
-					return nil
-				})
-				if err != nil {
-					callback(nil, err)
-					continue
+				if isZeroCopy {
+					//高性能查询盘口并执行回调
+					err = b.parent.ViewDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli, func(d *Depth) error {
+						d.UId, d.PreUId = b.GetUidAndPreUid(result)
+						callback(d, nil)
+						return nil
+					})
+					if err != nil {
+						callback(nil, err)
+						continue
+					}
+				} else {
+					depth, err := b.parent.GetDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli)
+					if err != nil {
+						callback(nil, err)
+						continue
+					}
+					depth.UId, depth.PreUId = b.GetUidAndPreUid(result)
+					callback(depth, nil)
 				}
 			case <-gateSub.CloseChan():
 				log.Info("订阅已关闭: ", gateSub.SubKeys)
@@ -717,8 +727,12 @@ func (b *GateOrderBook) SubscribeOrderBookWithCallBack(accountType GateAccountTy
 	return b.SubscribeOrderBooksWithCallBack(accountType, []string{symbol}, callback)
 }
 
-// 批量订阅深度并带上回调
 func (b *GateOrderBook) SubscribeOrderBooksWithCallBack(accountType GateAccountType, symbols []string, callback func(depth *Depth, err error)) error {
+	return b.SubscribeOrderBooksWithCallBackAndZeroCopy(accountType, symbols, callback, false)
+}
+
+// 批量订阅深度并带上回调
+func (b *GateOrderBook) SubscribeOrderBooksWithCallBackAndZeroCopy(accountType GateAccountType, symbols []string, callback func(depth *Depth, err error), isZeroCopy bool) error {
 	log.Infof("开始订阅增量OrderBook深度%s，交易对数:%d, 总订阅数:%d", accountType, len(symbols), len(symbols))
 
 	var currentGateOrderBookBase *gateOrderBookBase
@@ -746,7 +760,7 @@ func (b *GateOrderBook) SubscribeOrderBooksWithCallBack(accountType GateAccountT
 			if err != nil {
 				return err
 			}
-			err = currentGateOrderBookBase.subscribeGateDepthMultiple(client, tempSymbols, callback)
+			err = currentGateOrderBookBase.subscribeGateDepthMultipleWithZeroCopy(client, tempSymbols, callback, isZeroCopy)
 			if err != nil {
 				return err
 			}
@@ -764,7 +778,7 @@ func (b *GateOrderBook) SubscribeOrderBooksWithCallBack(accountType GateAccountT
 		if err != nil {
 			return err
 		}
-		err = currentGateOrderBookBase.subscribeGateDepthMultiple(client, symbols, callback)
+		err = currentGateOrderBookBase.subscribeGateDepthMultipleWithZeroCopy(client, symbols, callback, isZeroCopy)
 		if err != nil {
 			return err
 		}

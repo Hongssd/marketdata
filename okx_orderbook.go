@@ -123,7 +123,12 @@ func (o *OkxOrderBook) SubscribeOrderBooks(symbols []string) error {
 func (o *OkxOrderBook) SubscribeOrderBookWithCallBack(Symbol string, callback func(depth *Depth, err error)) error {
 	return o.SubscribeOrderBooksWithCallBack([]string{Symbol}, callback)
 }
+
 func (o *OkxOrderBook) SubscribeOrderBooksWithCallBack(symbols []string, callback func(depth *Depth, err error)) error {
+	return o.SubscribeOrderBooksWithCallBackAndZeroCopy(symbols, callback, false)
+}
+
+func (o *OkxOrderBook) SubscribeOrderBooksWithCallBackAndZeroCopy(symbols []string, callback func(depth *Depth, err error), isZeroCopy bool) error {
 	log.Infof("OKX开始订阅增量OrderBook深度，交易对数:%d, 总订阅数:%d", len(symbols), len(symbols))
 	//订阅总数超过LEN次，分批订阅
 	LEN := o.perSubMaxLen
@@ -138,7 +143,7 @@ func (o *OkxOrderBook) SubscribeOrderBooksWithCallBack(symbols []string, callbac
 			if err != nil {
 				return err
 			}
-			err = o.subscribeOkxDepthMultiple(client, tempSymbols, callback)
+			err = o.subscribeOkxDepthMultipleWithZeroCopy(client, tempSymbols, callback, isZeroCopy)
 			if err != nil {
 				return err
 			}
@@ -154,7 +159,7 @@ func (o *OkxOrderBook) SubscribeOrderBooksWithCallBack(symbols []string, callbac
 		if err != nil {
 			return err
 		}
-		err = o.subscribeOkxDepthMultiple(client, symbols, callback)
+		err = o.subscribeOkxDepthMultipleWithZeroCopy(client, symbols, callback, isZeroCopy)
 		if err != nil {
 			return err
 		}
@@ -173,11 +178,11 @@ func (o *OkxOrderBook) DepthContractSizeToQuantity(depth *Depth, contractSize fl
 	return depth
 }
 func (o *OkxOrderBook) subscribeOkxDepth(okxWsClient *myokxapi.PublicWsStreamClient, symbol string, callback func(depth *Depth, err error)) error {
-	return o.subscribeOkxDepthMultiple(okxWsClient, []string{symbol}, callback)
+	return o.subscribeOkxDepthMultipleWithZeroCopy(okxWsClient, []string{symbol}, callback, false)
 }
 
 // 订阅OKX深度
-func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsStreamClient, symbols []string, callback func(depth *Depth, err error)) error {
+func (o *OkxOrderBook) subscribeOkxDepthMultipleWithZeroCopy(okxWsClient *myokxapi.PublicWsStreamClient, symbols []string, callback func(depth *Depth, err error), isZeroCopy bool) error {
 
 	if _, ok := o.ReSubWsClientMap.Load(okxWsClient); !ok {
 		o.ReSubWsClientMap.Store(okxWsClient, &sync.Mutex{})
@@ -246,7 +251,7 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 			okxSub.CloseChan() <- struct{}{}
 		}
 
-		err = o.subscribeOkxDepthMultiple(okxWsClient, []string{symbol}, callback)
+		err = o.subscribeOkxDepthMultipleWithZeroCopy(okxWsClient, []string{symbol}, callback, isZeroCopy)
 		if err != nil {
 			log.Error(err)
 			return
@@ -291,17 +296,29 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 					if callback == nil || o.callBackDepthLevel == 0 {
 						continue
 					}
-					//高性能查询盘口并执行回调
-					err = o.ViewDepth(Symbol, int(o.callBackDepthLevel), o.callBackDepthTimeoutMilli, func(d *Depth) error {
-						d.UId = result.SeqId
-						d.PreUId = result.PrevSeqId
-						callback(d, nil)
-						return nil
-					})
-					if err != nil {
-						callback(nil, err)
-						continue
+					if isZeroCopy {
+						//高性能查询盘口并执行回调
+						err = o.ViewDepth(Symbol, int(o.callBackDepthLevel), o.callBackDepthTimeoutMilli, func(d *Depth) error {
+							d.UId = result.SeqId
+							d.PreUId = result.PrevSeqId
+							callback(d, nil)
+							return nil
+						})
+						if err != nil {
+							callback(nil, err)
+							continue
+						}
+					} else {
+						depth, err := o.GetDepth(Symbol, int(o.callBackDepthLevel), o.callBackDepthTimeoutMilli)
+						if err != nil {
+							callback(nil, err)
+							continue
+						}
+						depth.UId = result.SeqId
+						depth.PreUId = result.PrevSeqId
+						callback(depth, nil)
 					}
+
 				default:
 					//定量深度推送，直接覆盖全部
 					o.initAndClearOkxDepthOrderBook(result)
@@ -315,16 +332,27 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 					if callback == nil || o.callBackDepthLevel == 0 {
 						continue
 					}
-					//高性能查询盘口并执行回调
-					err = o.ViewDepth(Symbol, int(o.callBackDepthLevel), o.callBackDepthTimeoutMilli, func(d *Depth) error {
-						d.UId = result.SeqId
-						d.PreUId = result.PrevSeqId
-						callback(d, nil)
-						return nil
-					})
-					if err != nil {
-						callback(nil, err)
-						continue
+					if isZeroCopy {
+						//高性能查询盘口并执行回调
+						err = o.ViewDepth(Symbol, int(o.callBackDepthLevel), o.callBackDepthTimeoutMilli, func(d *Depth) error {
+							d.UId = result.SeqId
+							d.PreUId = result.PrevSeqId
+							callback(d, nil)
+							return nil
+						})
+						if err != nil {
+							callback(nil, err)
+							continue
+						}
+					} else {
+						depth, err := o.GetDepth(Symbol, int(o.callBackDepthLevel), o.callBackDepthTimeoutMilli)
+						if err != nil {
+							callback(nil, err)
+							continue
+						}
+						depth.UId = result.SeqId
+						depth.PreUId = result.PrevSeqId
+						callback(depth, nil)
 					}
 				}
 			case <-okxSub.CloseChan():

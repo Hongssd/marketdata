@@ -179,7 +179,7 @@ func (b *BinanceOrderBook) ViewDepth(BinanceAccountType BinanceAccountType, symb
 }
 
 // 订阅币安深度底层执行
-func (b *binanceOrderBookBase) subscribeBinanceDepthMultiple(binanceWsClient *mybinanceapi.WsStreamClient, symbols []string, callback func(depth *Depth, err error)) error {
+func (b *binanceOrderBookBase) subscribeBinanceDepthMultipleWithZeroCopy(binanceWsClient *mybinanceapi.WsStreamClient, symbols []string, callback func(depth *Depth, err error), isZeroCopy bool) error {
 
 	binanceSub, err := binanceWsClient.SubscribeIncrementDepthMultiple(symbols, b.uSpeed)
 	if err != nil {
@@ -274,15 +274,25 @@ func (b *binanceOrderBookBase) subscribeBinanceDepthMultiple(binanceWsClient *my
 				if callback == nil || b.callBackDepthLevel == 0 {
 					continue
 				}
-				//高性能查询盘口并执行回调
-				err = b.parent.ViewDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli, func(d *Depth) error {
-					d.UId, d.PreUId = b.GetUidAndPreUid(result)
-					callback(d, nil)
-					return nil
-				})
-				if err != nil {
-					callback(nil, err)
-					continue
+				if isZeroCopy {
+					//高性能查询盘口并执行回调
+					err = b.parent.ViewDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli, func(d *Depth) error {
+						d.UId, d.PreUId = b.GetUidAndPreUid(result)
+						callback(d, nil)
+						return nil
+					})
+					if err != nil {
+						callback(nil, err)
+						continue
+					}
+				} else {
+					depth, err := b.parent.GetDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli)
+					if err != nil {
+						callback(nil, err)
+						continue
+					}
+					depth.UId, depth.PreUId = b.GetUidAndPreUid(result)
+					callback(depth, nil)
 				}
 			case <-binanceSub.CloseChan():
 				log.Info("订阅已关闭: ", binanceSub.Params)
@@ -682,8 +692,12 @@ func (b *BinanceOrderBook) SubscribeOrderBookWithCallBack(accountType BinanceAcc
 	return b.SubscribeOrderBooksWithCallBack(accountType, []string{symbol}, callback)
 }
 
-// 批量订阅深度并带上回调
 func (b *BinanceOrderBook) SubscribeOrderBooksWithCallBack(accountType BinanceAccountType, symbols []string, callback func(depth *Depth, err error)) error {
+	return b.SubscribeOrderBooksWithCallBackAndZeroCopy(accountType, symbols, callback, false)
+}
+
+// 批量订阅深度并带上回调
+func (b *BinanceOrderBook) SubscribeOrderBooksWithCallBackAndZeroCopy(accountType BinanceAccountType, symbols []string, callback func(depth *Depth, err error), isZeroCopy bool) error {
 	log.Infof("开始订阅增量OrderBook深度%s，交易对数:%d, 总订阅数:%d", accountType, len(symbols), len(symbols))
 
 	var currentBinanceOrderBookBase *binanceOrderBookBase
@@ -711,7 +725,7 @@ func (b *BinanceOrderBook) SubscribeOrderBooksWithCallBack(accountType BinanceAc
 			if err != nil {
 				return err
 			}
-			err = currentBinanceOrderBookBase.subscribeBinanceDepthMultiple(client, tempSymbols, callback)
+			err = currentBinanceOrderBookBase.subscribeBinanceDepthMultipleWithZeroCopy(client, tempSymbols, callback, isZeroCopy)
 			if err != nil {
 				return err
 			}
@@ -729,7 +743,7 @@ func (b *BinanceOrderBook) SubscribeOrderBooksWithCallBack(accountType BinanceAc
 		if err != nil {
 			return err
 		}
-		err = currentBinanceOrderBookBase.subscribeBinanceDepthMultiple(client, symbols, callback)
+		err = currentBinanceOrderBookBase.subscribeBinanceDepthMultipleWithZeroCopy(client, symbols, callback, isZeroCopy)
 		if err != nil {
 			return err
 		}

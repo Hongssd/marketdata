@@ -173,7 +173,7 @@ func (b *AsterOrderBook) ViewDepth(AsterAccountType AsterAccountType, symbol str
 }
 
 // 订阅币安深度底层执行
-func (b *asterOrderBookBase) subscribeAsterDepthMultiple(asterWsClient *myasterapi.WsStreamClient, symbols []string, callback func(depth *Depth, err error)) error {
+func (b *asterOrderBookBase) subscribeAsterDepthMultipleWithZeroCopy(asterWsClient *myasterapi.WsStreamClient, symbols []string, callback func(depth *Depth, err error), isZeroCopy bool) error {
 
 	asterSub, err := asterWsClient.SubscribeIncrementDepthMultiple(symbols, b.uSpeed)
 	if err != nil {
@@ -268,14 +268,24 @@ func (b *asterOrderBookBase) subscribeAsterDepthMultiple(asterWsClient *myastera
 				if callback == nil || b.callBackDepthLevel == 0 {
 					continue
 				}
-				//高性能查询盘口并执行回调
-				err = b.parent.ViewDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli, func(d *Depth) error {
-					d.UId, d.PreUId = b.GetUidAndPreUid(result)
-					callback(d, nil)
-					return nil
-				})
-				if err != nil {
-					callback(nil, err)
+				if isZeroCopy {
+					//高性能查询盘口并执行回调
+					err = b.parent.ViewDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli, func(d *Depth) error {
+						d.UId, d.PreUId = b.GetUidAndPreUid(result)
+						callback(d, nil)
+						return nil
+					})
+					if err != nil {
+						callback(nil, err)
+					}
+				} else {
+					depth, err := b.parent.GetDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli)
+					if err != nil {
+						callback(nil, err)
+						continue
+					}
+					depth.UId, depth.PreUId = b.GetUidAndPreUid(result)
+					callback(depth, nil)
 				}
 			case <-asterSub.CloseChan():
 				log.Info("订阅已关闭: ", asterSub.Params)
@@ -640,8 +650,12 @@ func (b *AsterOrderBook) SubscribeOrderBookWithCallBack(accountType AsterAccount
 	return b.SubscribeOrderBooksWithCallBack(accountType, []string{symbol}, callback)
 }
 
-// 批量订阅深度并带上回调
 func (b *AsterOrderBook) SubscribeOrderBooksWithCallBack(accountType AsterAccountType, symbols []string, callback func(depth *Depth, err error)) error {
+	return b.SubscribeOrderBooksWithCallBackAndZeroCopy(accountType, symbols, callback, false)
+}
+
+// 批量订阅深度并带上回调
+func (b *AsterOrderBook) SubscribeOrderBooksWithCallBackAndZeroCopy(accountType AsterAccountType, symbols []string, callback func(depth *Depth, err error), isZeroCopy bool) error {
 	log.Infof("开始订阅增量OrderBook深度%s，交易对数:%d, 总订阅数:%d", accountType, len(symbols), len(symbols))
 
 	var currentAsterOrderBookBase *asterOrderBookBase
@@ -667,7 +681,7 @@ func (b *AsterOrderBook) SubscribeOrderBooksWithCallBack(accountType AsterAccoun
 			if err != nil {
 				return err
 			}
-			err = currentAsterOrderBookBase.subscribeAsterDepthMultiple(client, tempSymbols, callback)
+			err = currentAsterOrderBookBase.subscribeAsterDepthMultipleWithZeroCopy(client, tempSymbols, callback, isZeroCopy)
 			if err != nil {
 				return err
 			}
@@ -685,7 +699,7 @@ func (b *AsterOrderBook) SubscribeOrderBooksWithCallBack(accountType AsterAccoun
 		if err != nil {
 			return err
 		}
-		err = currentAsterOrderBookBase.subscribeAsterDepthMultiple(client, symbols, callback)
+		err = currentAsterOrderBookBase.subscribeAsterDepthMultipleWithZeroCopy(client, symbols, callback, isZeroCopy)
 		if err != nil {
 			return err
 		}
