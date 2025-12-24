@@ -151,6 +151,33 @@ func (b *BinanceOrderBook) GetDepth(BinanceAccountType BinanceAccountType, symbo
 	return newDepth, nil
 }
 
+// 封装好的获取深度方法(高性能视图模式)
+func (b *BinanceOrderBook) ViewDepth(BinanceAccountType BinanceAccountType, symbol string, level int, timeoutMilli int64, bizLogic func(*Depth) error) error {
+	bmap, err := b.getBaseMapFromAccountType(BinanceAccountType)
+	if err != nil {
+		return err
+	}
+
+	depth, ok := bmap.OrderBookMap.Load(symbol)
+	if !ok {
+		return fmt.Errorf("symbol:%s depth not found", symbol)
+	}
+	orderBook, ok := bmap.OrderBookRBTreeMap.Load(symbol)
+	if !ok {
+		err := fmt.Errorf("symbol:%s bidMap not found", symbol)
+		log.Error(err)
+		return err
+	}
+
+	return orderBook.ViewDepth(depth, level, func(d *Depth) error {
+		//如果超时限制大于0 判断深度是否超时
+		if timeoutMilli > 0 && time.Now().UnixMilli()-d.Timestamp > timeoutMilli {
+			return fmt.Errorf("symbol:%s depth timeout", symbol)
+		}
+		return bizLogic(d)
+	})
+}
+
 // 订阅币安深度底层执行
 func (b *binanceOrderBookBase) subscribeBinanceDepthMultiple(binanceWsClient *mybinanceapi.WsStreamClient, symbols []string, callback func(depth *Depth, err error)) error {
 
@@ -247,13 +274,16 @@ func (b *binanceOrderBookBase) subscribeBinanceDepthMultiple(binanceWsClient *my
 				if callback == nil || b.callBackDepthLevel == 0 {
 					continue
 				}
-				depth, err := b.parent.GetDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli)
+				//高性能查询盘口并执行回调
+				err = b.parent.ViewDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli, func(d *Depth) error {
+					d.UId, d.PreUId = b.GetUidAndPreUid(result)
+					callback(d, nil)
+					return nil
+				})
 				if err != nil {
 					callback(nil, err)
 					continue
 				}
-				depth.UId, depth.PreUId = b.GetUidAndPreUid(result)
-				callback(depth, err)
 			case <-binanceSub.CloseChan():
 				log.Info("订阅已关闭: ", binanceSub.Params)
 				return

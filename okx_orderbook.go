@@ -88,6 +88,28 @@ func (o *OkxOrderBook) GetDepth(symbol string, level int, timeoutMilli int64) (*
 	return newDepth, nil
 }
 
+// 封装好的获取深度方法(高性能视图模式)
+func (o *OkxOrderBook) ViewDepth(symbol string, level int, timeoutMilli int64, bizLogic func(*Depth) error) error {
+	depth, ok := o.OrderBookMap.Load(symbol)
+	if !ok {
+		return fmt.Errorf("symbol:%s depth not found", symbol)
+	}
+	orderBook, ok := o.OrderBookRBTreeMap.Load(symbol)
+	if !ok {
+		err := fmt.Errorf("symbol:%s bidMap not found", symbol)
+		log.Error(err)
+		return err
+	}
+
+	return orderBook.ViewDepth(depth, level, func(d *Depth) error {
+		//如果超时限制大于0 判断深度是否超时
+		if timeoutMilli > 0 && time.Now().UnixMilli()-d.Timestamp > timeoutMilli {
+			return fmt.Errorf("symbol:%s depth timeout", symbol)
+		}
+		return bizLogic(d)
+	})
+}
+
 func (o *OkxOrderBook) GetCurrentOrNewWsClient() (*myokxapi.PublicWsStreamClient, error) {
 	return o.parent.GetPublicCurrentOrNewWsClient(o.perConnSubNum, o.WsClientListMap)
 }
@@ -269,15 +291,17 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 					if callback == nil || o.callBackDepthLevel == 0 {
 						continue
 					}
-
-					depth, err := o.GetDepth(Symbol, int(o.callBackDepthLevel), o.callBackDepthTimeoutMilli)
+					//高性能查询盘口并执行回调
+					err = o.ViewDepth(Symbol, int(o.callBackDepthLevel), o.callBackDepthTimeoutMilli, func(d *Depth) error {
+						d.UId = result.SeqId
+						d.PreUId = result.PrevSeqId
+						callback(d, nil)
+						return nil
+					})
 					if err != nil {
 						callback(nil, err)
 						continue
 					}
-					depth.UId = result.SeqId
-					depth.PreUId = result.PrevSeqId
-					callback(depth, err)
 				default:
 					//定量深度推送，直接覆盖全部
 					o.initAndClearOkxDepthOrderBook(result)
@@ -291,16 +315,18 @@ func (o *OkxOrderBook) subscribeOkxDepthMultiple(okxWsClient *myokxapi.PublicWsS
 					if callback == nil || o.callBackDepthLevel == 0 {
 						continue
 					}
-					depth, err := o.GetDepth(Symbol, int(o.callBackDepthLevel), o.callBackDepthTimeoutMilli)
+					//高性能查询盘口并执行回调
+					err = o.ViewDepth(Symbol, int(o.callBackDepthLevel), o.callBackDepthTimeoutMilli, func(d *Depth) error {
+						d.UId = result.SeqId
+						d.PreUId = result.PrevSeqId
+						callback(d, nil)
+						return nil
+					})
 					if err != nil {
 						callback(nil, err)
 						continue
 					}
-					depth.UId = result.SeqId
-					depth.PreUId = result.PrevSeqId
-					callback(depth, err)
 				}
-
 			case <-okxSub.CloseChan():
 				log.Info("订阅已关闭: ", okxSub.Args)
 				return

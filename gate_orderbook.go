@@ -155,6 +155,33 @@ func (b *GateOrderBook) GetDepth(GateAccountType GateAccountType, symbol string,
 	return newDepth, nil
 }
 
+// 封装好的获取深度方法(高性能视图模式)
+func (b *GateOrderBook) ViewDepth(GateAccountType GateAccountType, symbol string, level int, timeoutMilli int64, bizLogic func(*Depth) error) error {
+	bmap, err := b.getBaseMapFromAccountType(GateAccountType)
+	if err != nil {
+		return err
+	}
+
+	depth, ok := bmap.OrderBookMap.Load(symbol)
+	if !ok {
+		return fmt.Errorf("symbol:%s depth not found", symbol)
+	}
+	orderBook, ok := bmap.OrderBookRBTreeMap.Load(symbol)
+	if !ok {
+		err := fmt.Errorf("symbol:%s bidMap not found", symbol)
+		log.Error(err)
+		return err
+	}
+
+	return orderBook.ViewDepth(depth, level, func(d *Depth) error {
+		//如果超时限制大于0 判断深度是否超时
+		if timeoutMilli > 0 && time.Now().UnixMilli()-d.Timestamp > timeoutMilli {
+			return fmt.Errorf("symbol:%s depth timeout", symbol)
+		}
+		return bizLogic(d)
+	})
+}
+
 // 订阅Gate深度底层执行
 func (b *gateOrderBookBase) subscribeGateDepthMultiple(gateWsClient *mygateapi.WsStreamClient, symbols []string, callback func(depth *Depth, err error)) error {
 	if b.AccountType == GATE_SPOT || b.AccountType == GATE_DELIVERY {
@@ -231,13 +258,16 @@ func (b *gateOrderBookBase) subscribeGateDepthMultiple(gateWsClient *mygateapi.W
 				if callback == nil || b.callBackDepthLevel == 0 {
 					continue
 				}
-				depth, err := b.parent.GetDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli)
+				//高性能查询盘口并执行回调
+				err = b.parent.ViewDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli, func(d *Depth) error {
+					d.UId, d.PreUId = b.GetUidAndPreUid(result)
+					callback(d, nil)
+					return nil
+				})
 				if err != nil {
 					callback(nil, err)
 					continue
 				}
-				depth.UId, depth.PreUId = b.GetUidAndPreUid(result)
-				callback(depth, err)
 			case <-gateSub.CloseChan():
 				log.Info("订阅已关闭: ", gateSub.SubKeys)
 				return
