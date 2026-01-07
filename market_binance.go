@@ -27,6 +27,7 @@ type BinanceMarketData struct {
 	*BinanceKline
 	*BinanceDepth
 	*BinanceAggTrade
+	*BinanceTrade
 	*BinanceTickers
 }
 
@@ -199,6 +200,22 @@ func (bm *BinanceMarketData) InitBinanceAggTrade(config BinanceAggTradeConfig) e
 	b.SwapAggTrade.AccountType = BINANCE_SWAP
 	b.SwapAggTrade.parent = b
 	bm.BinanceAggTrade = b
+	b.parent = bm
+	return nil
+}
+
+func (bm *BinanceMarketData) InitBinanceTrade(config BinanceTradeConfig) error {
+	b := &BinanceTrade{}
+	b.SpotTrade = b.newBinanceTradeBase(config.SpotConfig)
+	b.SpotTrade.AccountType = BINANCE_SPOT
+	b.SpotTrade.parent = b
+	b.FutureTrade = b.newBinanceTradeBase(config.FutureConfig)
+	b.FutureTrade.AccountType = BINANCE_FUTURE
+	b.FutureTrade.parent = b
+	b.SwapTrade = b.newBinanceTradeBase(config.SwapConfig)
+	b.SwapTrade.AccountType = BINANCE_SWAP
+	b.SwapTrade.parent = b
+	bm.BinanceTrade = b
 	b.parent = bm
 	return nil
 }

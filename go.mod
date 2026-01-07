@@ -4,10 +4,10 @@ go 1.25.1
 
 require (
 	github.com/Hongssd/myasterapi v0.0.2
-	github.com/Hongssd/mybinanceapi v1.10.0
+	github.com/Hongssd/mybinanceapi v1.10.1
 	github.com/Hongssd/mybybitapi v0.1.8
 	github.com/Hongssd/mygateapi v0.2.4
-	github.com/Hongssd/myokxapi v0.5.2
+	github.com/Hongssd/myokxapi v0.5.4
 	github.com/Hongssd/mysunxapi v0.0.6
 	github.com/emirpasic/gods v1.18.1
 	github.com/gorilla/websocket v1.5.3

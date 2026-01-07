@@ -17,6 +17,7 @@ type OkxMarketData struct {
 	*OkxKline
 	*OkxOption
 	*OkxAggTrade
+	*OkxTrade
 	*OkxMarkPrice
 	*OkxTickers
 }
@@ -62,6 +63,11 @@ func (om *OkxMarketData) InitOkxOption(config OkxOptionConfig) error {
 func (om *OkxMarketData) InitOkxAggTrade(config OkxAggTradeConfig) error {
 	o := om.newOkxAggTrade(config)
 	om.OkxAggTrade = o
+	return nil
+}
+func (om *OkxMarketData) InitOkxTrade(config OkxTradeConfig) error {
+	o := om.newOkxTrade(config)
+	om.OkxTrade = o
 	return nil
 }
 func (om *OkxMarketData) InitOkxMarkPrice(config OkxMarkPriceConfig) error {
