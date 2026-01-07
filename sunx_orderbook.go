@@ -84,6 +84,26 @@ func (s *SunxOrderBook) GetDepth(symbol string, level int, timeoutMilli int64) (
 	return newDepth, nil
 }
 
+func (s *SunxOrderBook) ViewDepth(symbol string, level int, timeoutMilli int64, bizLogic func(*Depth) error) error {
+	depth, ok := s.OrderBookMap.Load(symbol)
+	if !ok {
+		err := fmt.Errorf("symbol:%s depth not found", symbol)
+		return err
+	}
+	orderBook, ok := s.OrderBookRBTreeMap.Load(symbol)
+	if !ok {
+		err := fmt.Errorf("symbol:%s orderBook not found", symbol)
+		return err
+	}
+	return orderBook.ViewDepth(depth, level, func(d *Depth) error {
+		//如果超时限制大于0 判断深度是否超时
+		if timeoutMilli > 0 && time.Now().UnixMilli()-d.Timestamp > timeoutMilli {
+			return fmt.Errorf("symbol:%s depth timeout", symbol)
+		}
+		return bizLogic(d)
+	})
+}
+
 func (s *SunxOrderBook) GetCurrentOrNewWsClient() (*mysunxapi.PublicWsStreamClient, error) {
 	return s.parent.GetPublicCurrentOrNewWsClient(s.perConnSubNum, s.WsClientListMap)
 }
@@ -97,6 +117,9 @@ func (s *SunxOrderBook) SubscribeOrderBookWithCallBack(Symbol string, callback f
 	return s.SubscribeOrderBooksWithCallBack([]string{Symbol}, callback)
 }
 func (s *SunxOrderBook) SubscribeOrderBooksWithCallBack(symbols []string, callback func(depth *Depth, err error)) error {
+	return s.SubscribeOrderBooksWithCallBackAndZeroCopy(symbols, callback, false)
+}
+func (s *SunxOrderBook) SubscribeOrderBooksWithCallBackAndZeroCopy(symbols []string, callback func(depth *Depth, err error), isZeroCopy bool) error {
 	log.Infof("Sunx开始订阅增量OrderBook深度，交易对数:%d, 总订阅数:%d", len(symbols), len(symbols))
 	LEN := s.perSubMaxLen
 	if len(symbols) > LEN {
@@ -110,7 +133,7 @@ func (s *SunxOrderBook) SubscribeOrderBooksWithCallBack(symbols []string, callba
 			if err != nil {
 				return err
 			}
-			err = s.SubscribeOrderBooks(tempSymbols)
+			err = s.subscribeSunxDepthMultipleWithZeroCopy(client, tempSymbols, callback, isZeroCopy)
 			if err != nil {
 				return err
 			}
@@ -126,16 +149,17 @@ func (s *SunxOrderBook) SubscribeOrderBooksWithCallBack(symbols []string, callba
 		if err != nil {
 			return err
 		}
-		err = s.subscribeSunxDepthMultiple(client, symbols, callback)
+		err = s.subscribeSunxDepthMultipleWithZeroCopy(client, symbols, callback, isZeroCopy)
 		if err != nil {
 			return err
 		}
 	}
-
 	return nil
 }
-
 func (s *SunxOrderBook) subscribeSunxDepthMultiple(sunxWsClient *mysunxapi.PublicWsStreamClient, symbols []string, callback func(depth *Depth, err error)) error {
+	return s.subscribeSunxDepthMultipleWithZeroCopy(sunxWsClient, symbols, callback, false)
+}
+func (s *SunxOrderBook) subscribeSunxDepthMultipleWithZeroCopy(sunxWsClient *mysunxapi.PublicWsStreamClient, symbols []string, callback func(depth *Depth, err error), isZeroCopy bool) error {
 	if _, ok := s.ReSubWsClientMap.Load(sunxWsClient); !ok {
 		s.ReSubWsClientMap.Store(sunxWsClient, &sync.Mutex{})
 	}
@@ -196,7 +220,7 @@ func (s *SunxOrderBook) subscribeSunxDepthMultiple(sunxWsClient *mysunxapi.Publi
 			sunxSub.CloseChan() <- struct{}{}
 		}
 
-		err = s.subscribeSunxDepthMultiple(sunxWsClient, []string{symbol}, callback)
+		err = s.subscribeSunxDepthMultipleWithZeroCopy(sunxWsClient, []string{symbol}, callback, true)
 		if err != nil {
 			log.Error(err)
 			return
@@ -247,13 +271,28 @@ func (s *SunxOrderBook) subscribeSunxDepthMultiple(sunxWsClient *mysunxapi.Publi
 					if callback == nil || s.callBackDepthLevel == 0 {
 						continue
 					}
-
-					depth, err := s.GetDepth(Symbol, int(s.callBackDepthLevel), s.callBackDepthTimeoutMilli)
-					if err != nil {
-						callback(nil, err)
-						continue
+					if isZeroCopy {
+						//高性能查询盘口并执行回调
+						err = s.ViewDepth(Symbol, int(s.callBackDepthLevel), s.callBackDepthTimeoutMilli, func(d *Depth) error {
+							d.UId = result.Tick.Version
+							d.PreUId = result.Tick.Version - 1
+							callback(d, nil)
+							return nil
+						})
+						if err != nil {
+							callback(nil, err)
+							continue
+						}
+					} else {
+						depth, err := s.GetDepth(Symbol, int(s.callBackDepthLevel), s.callBackDepthTimeoutMilli)
+						if err != nil {
+							callback(nil, err)
+							continue
+						}
+						depth.UId = result.Tick.Version
+						depth.PreUId = result.Tick.Version - 1
+						callback(depth, nil)
 					}
-					callback(depth, err)
 				default:
 					//定量深度推送，直接覆盖全部
 					s.initAndClearSunxDepthOrderBook(result)
@@ -267,12 +306,28 @@ func (s *SunxOrderBook) subscribeSunxDepthMultiple(sunxWsClient *mysunxapi.Publi
 					if callback == nil || s.callBackDepthLevel == 0 {
 						continue
 					}
-					depth, err := s.GetDepth(Symbol, int(s.callBackDepthLevel), s.callBackDepthTimeoutMilli)
-					if err != nil {
-						callback(nil, err)
-						continue
+					if isZeroCopy {
+						//高性能查询盘口并执行回调
+						err = s.ViewDepth(Symbol, int(s.callBackDepthLevel), s.callBackDepthTimeoutMilli, func(d *Depth) error {
+							d.UId = result.Tick.Version
+							d.PreUId = result.Tick.Version - 1
+							callback(d, nil)
+							return nil
+						})
+						if err != nil {
+							callback(nil, err)
+							continue
+						}
+					} else {
+						depth, err := s.GetDepth(Symbol, int(s.callBackDepthLevel), s.callBackDepthTimeoutMilli)
+						if err != nil {
+							callback(nil, err)
+							continue
+						}
+						depth.UId = result.Tick.Version
+						depth.PreUId = result.Tick.Version - 1
+						callback(depth, nil)
 					}
-					callback(depth, err)
 				}
 			case <-sunxSub.CloseChan():
 				log.Info("订阅已关闭: ", sunxSub.SubReqs)

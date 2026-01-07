@@ -136,8 +136,35 @@ func (b *BybitOrderBook) GetDepth(BybitAccountType BybitAccountType, symbol stri
 	return newDepth, nil
 }
 
+// 封装好的获取深度方法(高性能视图模式)
+func (b *BybitOrderBook) ViewDepth(BybitAccountType BybitAccountType, symbol string, level int, timeoutMilli int64, bizLogic func(*Depth) error) error {
+	bmap, err := b.getBaseMapFromAccountType(BybitAccountType)
+	if err != nil {
+		return err
+	}
+
+	depth, ok := bmap.OrderBookMap.Load(symbol)
+	if !ok {
+		return fmt.Errorf("symbol:%s depth not found", symbol)
+	}
+	orderBook, ok := bmap.OrderBookRBTreeMap.Load(symbol)
+	if !ok {
+		err := fmt.Errorf("symbol:%s bidMap not found", symbol)
+		log.Error(err)
+		return err
+	}
+
+	return orderBook.ViewDepth(depth, level, func(d *Depth) error {
+		//如果超时限制大于0 判断深度是否超时
+		if timeoutMilli > 0 && time.Now().UnixMilli()-d.Timestamp > timeoutMilli {
+			return fmt.Errorf("symbol:%s depth timeout", symbol)
+		}
+		return bizLogic(d)
+	})
+}
+
 // 订阅Bybit深度底层执行
-func (b *bybitOrderBookBase) subscribeBybitDepthMultiple(bybitWsClient *mybybitapi.PublicWsStreamClient, symbols []string, callback func(depth *Depth, err error)) error {
+func (b *bybitOrderBookBase) subscribeBybitDepthMultipleWithZeroCopy(bybitWsClient *mybybitapi.PublicWsStreamClient, symbols []string, callback func(depth *Depth, err error), isZeroCopy bool) error {
 
 	if _, ok := b.ReSubWsClientMuMap.Load(bybitWsClient); !ok {
 		b.ReSubWsClientMuMap.Store(bybitWsClient, &sync.Mutex{})
@@ -208,7 +235,7 @@ func (b *bybitOrderBookBase) subscribeBybitDepthMultiple(bybitWsClient *mybybita
 			bybitSub.CloseChan() <- struct{}{}
 		}
 
-		err = b.subscribeBybitDepthMultiple(bybitWsClient, []string{symbol}, callback)
+		err = b.subscribeBybitDepthMultipleWithZeroCopy(bybitWsClient, []string{symbol}, callback, isZeroCopy)
 		if err != nil {
 			log.Error(err)
 			return
@@ -255,14 +282,28 @@ func (b *bybitOrderBookBase) subscribeBybitDepthMultiple(bybitWsClient *mybybita
 					if callback == nil || b.callBackDepthLevel == 0 {
 						continue
 					}
-					depth, err := b.parent.GetDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli)
-					if err != nil {
-						callback(nil, err)
-						continue
+					if isZeroCopy {
+						//高性能查询盘口并执行回调
+						err = b.parent.ViewDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli, func(d *Depth) error {
+							d.UId = result.U
+							d.PreUId = result.U - 1
+							callback(d, nil)
+							return nil
+						})
+						if err != nil {
+							callback(nil, err)
+							continue
+						}
+					} else {
+						depth, err := b.parent.GetDepth(b.AccountType, Symbol, int(b.callBackDepthLevel), b.callBackDepthTimeoutMilli)
+						if err != nil {
+							callback(nil, err)
+							continue
+						}
+						depth.UId = result.U
+						depth.PreUId = result.U - 1
+						callback(depth, nil)
 					}
-					depth.UId = result.U
-					depth.PreUId = result.U - 1
-					callback(depth, err)
 				}
 			case <-bybitSub.CloseChan():
 				log.Info("订阅已关闭: ", bybitSub.Args)
@@ -393,8 +434,12 @@ func (b *BybitOrderBook) SubscribeOrderBookWithCallBack(accountType BybitAccount
 	return b.SubscribeOrderBooksWithCallBack(accountType, []string{symbol}, callback)
 }
 
-// 批量订阅深度并带上回调
 func (b *BybitOrderBook) SubscribeOrderBooksWithCallBack(accountType BybitAccountType, symbols []string, callback func(depth *Depth, err error)) error {
+	return b.SubscribeOrderBooksWithCallBackAndZeroCopy(accountType, symbols, callback, false)
+}
+
+// 批量订阅深度并带上回调
+func (b *BybitOrderBook) SubscribeOrderBooksWithCallBackAndZeroCopy(accountType BybitAccountType, symbols []string, callback func(depth *Depth, err error), isZeroCopy bool) error {
 	log.Infof("开始订阅增量OrderBook深度%s，交易对数:%d, 总订阅数:%d", accountType, len(symbols), len(symbols))
 
 	var currentBybitOrderBookBase *bybitOrderBookBase
@@ -422,7 +467,7 @@ func (b *BybitOrderBook) SubscribeOrderBooksWithCallBack(accountType BybitAccoun
 			if err != nil {
 				return err
 			}
-			err = currentBybitOrderBookBase.subscribeBybitDepthMultiple(client, tempSymbols, callback)
+			err = currentBybitOrderBookBase.subscribeBybitDepthMultipleWithZeroCopy(client, tempSymbols, callback, isZeroCopy)
 			if err != nil {
 				return err
 			}
@@ -440,7 +485,7 @@ func (b *BybitOrderBook) SubscribeOrderBooksWithCallBack(accountType BybitAccoun
 		if err != nil {
 			return err
 		}
-		err = currentBybitOrderBookBase.subscribeBybitDepthMultiple(client, symbols, callback)
+		err = currentBybitOrderBookBase.subscribeBybitDepthMultipleWithZeroCopy(client, symbols, callback, isZeroCopy)
 		if err != nil {
 			return err
 		}

@@ -4,7 +4,6 @@ import (
 	"sync"
 
 	rbt "github.com/emirpasic/gods/trees/redblacktree"
-	"github.com/zhangyunhao116/skipmap"
 )
 
 // 定义一个结构体，用于表示订单的信息，你可以根据你的需求添加更多的字段
@@ -18,6 +17,9 @@ type OrderBook interface {
 	PutAskLevels(prices, quantities []float64)
 	ClearAll()
 	LoadToDepth(depth *Depth, level int) (*Depth, error)
+
+	// 新增高性能回调方法，内部实现池化
+	ViewDepth(depth *Depth, level int, fn func(*Depth) error) error
 }
 
 type OrderBookType int
@@ -43,10 +45,7 @@ func NewOrderBook() OrderBook {
 			asksMu: &sync.RWMutex{},
 		}
 	case OBT_SKIPMAP:
-		return &OrderBookSkipMap{
-			Bids: skipmap.NewFunc[float64, float64](skmCompareBidPrice),
-			Asks: skipmap.NewFunc[float64, float64](skmCompareAskPrice),
-		}
+		return NewOrderBookSkipMap()
 	}
 	return nil
 
