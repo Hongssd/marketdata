@@ -133,7 +133,6 @@ func (b *binanceTradeBase) subscribeBinanceTradeMultiple(binanceWsClient *mybina
 					Price:       result.Price,
 					Quantity:    result.Quantity,
 					TradeTime:   targetTs,
-					IsBuyer:     !result.IsMarket,
 					IsMarket:    result.IsMarket,
 				}
 				b.TradeMap.Store(symbolKey, trade)

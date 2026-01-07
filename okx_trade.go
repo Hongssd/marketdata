@@ -134,6 +134,10 @@ func (o *OkxTrade) subscribeOkxTradeMultiple(okxWsClient *myokxapi.BusinessWsStr
 				}
 			case result := <-okxSub.ResultChan():
 				for _, t := range result.AllTrades {
+					isMarket := true
+					if t.Side == "buy" {
+						isMarket = false
+					}
 					if okx_common == nil {
 						okx_common = (&okxCommon{}).InitCommon()
 					}
@@ -154,8 +158,7 @@ func (o *OkxTrade) subscribeOkxTradeMultiple(okxWsClient *myokxapi.BusinessWsStr
 						Price:       stringToFloat64(t.Px),
 						Quantity:    stringToFloat64(t.Sz),
 						TradeTime:   targetTs,
-						IsBuyer:     t.Side == "buy",
-						IsMarket:    false,
+						IsMarket:    isMarket,
 					}
 					o.TradeMap.Store(t.InstId, trade)
 					if callback != nil {

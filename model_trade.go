@@ -9,6 +9,5 @@ type Trade struct {
 	Price       float64 `json:"price" bson:"price"`              //成交价
 	Quantity    float64 `json:"quantity" bson:"quantity"`        //成交量
 	TradeTime   int64   `json:"tradeTime" bson:"trade_time"`     //成交时间
-	IsBuyer     bool    `json:"isBuyer" bson:"is_buyer"`         //是否为买方
 	IsMarket    bool    `json:"isMarket" bson:"is_market"`       //买方是否做市方
 }
