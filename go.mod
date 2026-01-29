@@ -8,7 +8,7 @@ require (
 	github.com/Hongssd/mybybitapi v0.1.8
 	github.com/Hongssd/mygateapi v0.2.4
 	github.com/Hongssd/myokxapi v0.5.4
-	github.com/Hongssd/mysunxapi v0.1.5
+	github.com/Hongssd/mysunxapi v0.1.6
 	github.com/emirpasic/gods v1.18.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/json-iterator/go v1.1.12
