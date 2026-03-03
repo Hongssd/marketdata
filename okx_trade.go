@@ -138,6 +138,7 @@ func (o *OkxTrade) subscribeOkxTradeMultiple(okxWsClient *myokxapi.BusinessWsStr
 					if t.Side == "buy" {
 						isMarket = false
 					}
+
 					if okx_common == nil {
 						okx_common = (&okxCommon{}).InitCommon()
 					}
