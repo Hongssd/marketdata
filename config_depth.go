@@ -1,5 +1,7 @@
 package marketdata
 
+import "github.com/Hongssd/myxcoinapi"
+
 type BinanceDepthConfig struct {
 	SpotConfig   BinanceDepthConfigBase
 	FutureConfig BinanceDepthConfigBase
@@ -46,4 +48,11 @@ type SunxDepthConfigBase struct {
 	PerConnSubNum int64  //每条链接订阅的数量
 	PerSubMaxLen  int    //每条链接每次订阅的最大数量
 	Level         string //深度档位
+}
+
+type XcoinDepthConfig struct {
+	PerConnSubNum int64                                //每条链接订阅的数量
+	PerSubMaxLen  int                                  //每条链接每次订阅的最大数量
+	Level         myxcoinapi.WsDepthLevelsType         //深度档位
+	USpeed        myxcoinapi.WsDepthLevelsIntervalType //深度更新速度
 }
