@@ -9,7 +9,7 @@ require (
 	github.com/Hongssd/mygateapi v0.2.4
 	github.com/Hongssd/myokxapi v0.5.4
 	github.com/Hongssd/mysunxapi v0.1.6
-	github.com/Hongssd/myxcoinapi v0.0.3
+	github.com/Hongssd/myxcoinapi v0.0.4
 	github.com/emirpasic/gods v1.18.1
 	github.com/json-iterator/go v1.1.12
 	github.com/robfig/cron/v3 v3.0.1
