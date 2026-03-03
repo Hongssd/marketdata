@@ -15,7 +15,6 @@ require (
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/shopspring/decimal v1.4.0
 	github.com/sirupsen/logrus v1.9.4
-	github.com/sirupsen/logrus v1.9.4
 	github.com/zhangyunhao116/skipmap v0.10.1
 	golang.org/x/sync v0.19.0
 )
