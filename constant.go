@@ -13,6 +13,7 @@ const (
 	GATE    Exchange = "GATE"
 	ASTER   Exchange = "ASTER"
 	SUNX    Exchange = "SUNX"
+	XCOIN   Exchange = "XCOIN"
 )
 
 func (e Exchange) String() string {
@@ -78,6 +79,28 @@ const (
 
 func (aat AsterAccountType) String() string {
 	return string(aat)
+}
+
+type SunxAccountType string
+
+const (
+	SUNX_SWAP = "swap"
+)
+
+func (sat SunxAccountType) String() string {
+	return string(sat)
+}
+
+type XcoinBusinessType string
+
+const (
+	XCOIN_SPOT             XcoinBusinessType = "spot"
+	XCOIN_LINEAR_PERPETUAL XcoinBusinessType = "linear_perpetual"
+	XCOIN_LINEAR_FUTURES   XcoinBusinessType = "linear_futures"
+)
+
+func (xat XcoinBusinessType) String() string {
+	return string(xat)
 }
 
 type BinanceInterval string
@@ -359,16 +382,6 @@ func initAsterIntervalMillisecondMap() {
 	AsterIntervalMillisecondMap.Store(ASTER_INTERVAL_1M.String(), 30*24*60*60*1000)
 }
 
-type SunxAccountType string
-
-const (
-	SUNX_SWAP = "swap"
-)
-
-func (sat SunxAccountType) String() string {
-	return string(sat)
-}
-
 type SunxInterval string
 
 const (
@@ -408,6 +421,60 @@ func initSunxIntervalMillisecondMap() {
 	SunxIntervalMillisecondMap.Store(SUNX_INTERVAL_30d.String(), 30*24*60*60*1000)
 }
 
+type XcoinInterval string
+
+const (
+	XCOIN_INTERVAL_1s  XcoinInterval = "1s"
+	XCOIN_INTERVAL_1m  XcoinInterval = "1m"
+	XCOIN_INTERVAL_3m  XcoinInterval = "3m"
+	XCOIN_INTERVAL_5m  XcoinInterval = "5m"
+	XCOIN_INTERVAL_15m XcoinInterval = "15m"
+	XCOIN_INTERVAL_30m XcoinInterval = "30m"
+	XCOIN_INTERVAL_1h  XcoinInterval = "1h"
+	XCOIN_INTERVAL_2h  XcoinInterval = "2h"
+	XCOIN_INTERVAL_4h  XcoinInterval = "4h"
+	XCOIN_INTERVAL_6h  XcoinInterval = "6h"
+	XCOIN_INTERVAL_8h  XcoinInterval = "8h"
+	XCOIN_INTERVAL_12h XcoinInterval = "12h"
+	XCOIN_INTERVAL_1d  XcoinInterval = "1d"
+	XCOIN_INTERVAL_3d  XcoinInterval = "3d"
+	XCOIN_INTERVAL_1w  XcoinInterval = "1w"
+	XCOIN_INTERVAL_1M  XcoinInterval = "1M"
+)
+
+func (i XcoinInterval) String() string {
+	return string(i)
+}
+
+func (i XcoinInterval) Millisecond() int64 {
+	m, ok := XcoinIntervalMillisecondMap.Load(i.String())
+	if !ok {
+		return 0
+	}
+	return m
+}
+
+var XcoinIntervalMillisecondMap = NewMySyncMap[string, int64]()
+
+func initXcoinIntervalMillisecondMap() {
+	XcoinIntervalMillisecondMap.Store(XCOIN_INTERVAL_1s.String(), 1000)
+	XcoinIntervalMillisecondMap.Store(XCOIN_INTERVAL_1m.String(), 60*1000)
+	XcoinIntervalMillisecondMap.Store(XCOIN_INTERVAL_3m.String(), 3*60*1000)
+	XcoinIntervalMillisecondMap.Store(XCOIN_INTERVAL_5m.String(), 5*60*1000)
+	XcoinIntervalMillisecondMap.Store(XCOIN_INTERVAL_15m.String(), 15*60*1000)
+	XcoinIntervalMillisecondMap.Store(XCOIN_INTERVAL_30m.String(), 30*60*1000)
+	XcoinIntervalMillisecondMap.Store(XCOIN_INTERVAL_1h.String(), 60*60*1000)
+	XcoinIntervalMillisecondMap.Store(XCOIN_INTERVAL_2h.String(), 2*60*60*1000)
+	XcoinIntervalMillisecondMap.Store(XCOIN_INTERVAL_4h.String(), 4*60*60*1000)
+	XcoinIntervalMillisecondMap.Store(XCOIN_INTERVAL_6h.String(), 6*60*60*1000)
+	XcoinIntervalMillisecondMap.Store(XCOIN_INTERVAL_8h.String(), 8*60*60*1000)
+	XcoinIntervalMillisecondMap.Store(XCOIN_INTERVAL_12h.String(), 12*60*60*1000)
+	XcoinIntervalMillisecondMap.Store(XCOIN_INTERVAL_1d.String(), 24*60*60*1000)
+	XcoinIntervalMillisecondMap.Store(XCOIN_INTERVAL_3d.String(), 3*24*60*60*1000)
+	XcoinIntervalMillisecondMap.Store(XCOIN_INTERVAL_1w.String(), 7*24*60*60*1000)
+	XcoinIntervalMillisecondMap.Store(XCOIN_INTERVAL_1M.String(), 30*24*60*60*1000)
+}
+
 func init() {
 	initBinanceIntervalMillisecondMap()
 	initOkxIntervalMillisecondMap()
@@ -415,4 +482,5 @@ func init() {
 	initGateIntervalMillisecondMap()
 	initAsterIntervalMillisecondMap()
 	initSunxIntervalMillisecondMap()
+	initXcoinIntervalMillisecondMap()
 }

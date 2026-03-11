@@ -5,9 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Hongssd/mygateapi"
-
 	"github.com/Hongssd/mybybitapi"
+	"github.com/Hongssd/mygateapi"
 )
 
 type MySyncMap[K any, V any] struct {
@@ -192,4 +191,15 @@ func SunxGetServerTimeDelta(accountType SunxAccountType) (int64, error) {
 	default:
 		return 0, ErrorAccountType
 	}
+}
+
+func XcoinGetServerTimeDelta() (int64, error) {
+	t1 := time.Now().UnixMilli()
+	res, err := xcoin.NewRestClient("", "").PublicRestClient().NewPublicRestMarketTime().Do()
+	if err != nil {
+		return 0, err
+	}
+	t2 := time.Now().UnixMilli()
+	delta := stringToInt64(res.Data.Time) - (t2+t1)/2
+	return -delta, nil
 }
