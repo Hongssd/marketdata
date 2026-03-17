@@ -137,7 +137,7 @@ func (x *XcoinOrderBook) SubscribeOrderBooksWithCallBackAndZeroCopy(businessType
 			if err != nil {
 				return err
 			}
-			err = x.subscribeXcoinDepthMultipleWithZeroCopy(client, tempSymbols, callback, isZeroCopy)
+			err = x.subscribeXcoinDepthMultipleWithZeroCopy(client, businessType, tempSymbols, callback, isZeroCopy)
 			if err != nil {
 				return err
 			}
@@ -153,7 +153,7 @@ func (x *XcoinOrderBook) SubscribeOrderBooksWithCallBackAndZeroCopy(businessType
 		if err != nil {
 			return err
 		}
-		err = x.subscribeXcoinDepthMultipleWithZeroCopy(client, symbols, callback, isZeroCopy)
+		err = x.subscribeXcoinDepthMultipleWithZeroCopy(client, businessType, symbols, callback, isZeroCopy)
 		if err != nil {
 			return err
 		}
@@ -170,19 +170,19 @@ func (x *XcoinOrderBook) DepthContractSizeToQuantity(depth *Depth, contractSize 
 	}
 	return depth
 }
-func (x *XcoinOrderBook) subscribeXcoinDepth(xcoinWsClient *myxcoinapi.PublicWsStreamClient, symbol string, callback func(depth *Depth, err error)) error {
-	return x.subscribeXcoinDepthMultipleWithZeroCopy(xcoinWsClient, []string{symbol}, callback, false)
+func (x *XcoinOrderBook) subscribeXcoinDepth(xcoinWsClient *myxcoinapi.PublicWsStreamClient, businessType XcoinBusinessType, symbol string, callback func(depth *Depth, err error)) error {
+	return x.subscribeXcoinDepthMultipleWithZeroCopy(xcoinWsClient, businessType, []string{symbol}, callback, false)
 }
 
 // 订阅Xcoin深度
-func (x *XcoinOrderBook) subscribeXcoinDepthMultipleWithZeroCopy(xcoinWsClient *myxcoinapi.PublicWsStreamClient, symbols []string, callback func(depth *Depth, err error), isZeroCopy bool) error {
+func (x *XcoinOrderBook) subscribeXcoinDepthMultipleWithZeroCopy(xcoinWsClient *myxcoinapi.PublicWsStreamClient, businessType XcoinBusinessType, symbols []string, callback func(depth *Depth, err error), isZeroCopy bool) error {
 	// 1) 预先准备重订阅所需的 ws 级锁，避免并发重入导致状态错乱
 	if _, ok := x.ReSubWsClientMap.Load(xcoinWsClient); !ok {
 		x.ReSubWsClientMap.Store(xcoinWsClient, &sync.Mutex{})
 	}
 
 	// 2) 一次性发起多 symbol 深度订阅
-	xcoinSub, err := xcoinWsClient.SubscribeDepthMulti(XCOIN_SPOT.String(), x.wsDepthIntervalType, symbols...)
+	xcoinSub, err := xcoinWsClient.SubscribeDepthMulti(businessType.String(), x.wsDepthIntervalType, symbols...)
 	if err != nil {
 		log.Error(err)
 		return err
@@ -248,7 +248,7 @@ func (x *XcoinOrderBook) subscribeXcoinDepthMultipleWithZeroCopy(xcoinWsClient *
 		// 4) 拉取 REST 快照，构建本地基线
 		res, err := xcoin.NewRestClient("", "").PublicRestClient().
 			NewPublicRestMarketDepth().
-			BusinessType(XCOIN_SPOT.String()).
+			BusinessType(businessType.String()).
 			Symbol(symbol).
 			Limit("1000").
 			Do()
@@ -269,7 +269,7 @@ func (x *XcoinOrderBook) subscribeXcoinDepthMultipleWithZeroCopy(xcoinWsClient *
 			PreUpdateId:  snapshot.LastUpdateId,
 			LastUpdateId: snapshot.LastUpdateId,
 		}
-		if err = x.initXcoinDepthOrderBook(*snapshotAsEvent); err != nil {
+		if err = x.initXcoinDepthOrderBook(businessType, *snapshotAsEvent); err != nil {
 			return err
 		}
 
@@ -310,7 +310,7 @@ func (x *XcoinOrderBook) subscribeXcoinDepthMultipleWithZeroCopy(xcoinWsClient *
 				if ce.pre != expectedPre {
 					return fmt.Errorf("%s replay gap, preUpdateId=%d expected=%d", symbol, ce.pre, expectedPre)
 				}
-				if err = x.saveXcoinDepthOrderBook(*ce.ev); err != nil {
+				if err = x.saveXcoinDepthOrderBook(businessType, *ce.ev); err != nil {
 					return err
 				}
 				currentLast = ce.last
@@ -337,10 +337,10 @@ func (x *XcoinOrderBook) subscribeXcoinDepthMultipleWithZeroCopy(xcoinWsClient *
 			return
 		}
 
-		err := xcoinWsClient.UnsubscribeDepthMulti(XCOIN_SPOT.String(), x.wsDepthIntervalType, symbol)
+		err := xcoinWsClient.UnsubscribeDepthMulti(businessType.String(), x.wsDepthIntervalType, symbol)
 		for err != nil && strings.Contains(err.Error(), "websocket is busy") {
 			time.Sleep(1000 * time.Millisecond)
-			err = xcoinWsClient.UnsubscribeDepthMulti(XCOIN_SPOT.String(), x.wsDepthIntervalType, symbol)
+			err = xcoinWsClient.UnsubscribeDepthMulti(businessType.String(), x.wsDepthIntervalType, symbol)
 		}
 		if err != nil {
 			log.Error(err)
@@ -367,7 +367,7 @@ func (x *XcoinOrderBook) subscribeXcoinDepthMultipleWithZeroCopy(xcoinWsClient *
 			xcoinSub.CloseChan() <- struct{}{}
 		}
 
-		err = x.subscribeXcoinDepthMultipleWithZeroCopy(xcoinWsClient, []string{symbol}, callback, isZeroCopy)
+		err = x.subscribeXcoinDepthMultipleWithZeroCopy(xcoinWsClient, businessType, []string{symbol}, callback, isZeroCopy)
 		if err != nil {
 			log.Error(err)
 		}
@@ -419,7 +419,7 @@ func (x *XcoinOrderBook) subscribeXcoinDepthMultipleWithZeroCopy(xcoinWsClient *
 				}
 
 				// 本地账本增量落盘
-				if err = x.saveXcoinDepthOrderBook(result); err != nil {
+				if err = x.saveXcoinDepthOrderBook(businessType, result); err != nil {
 					log.Error(err)
 					go reSubThis(symbol)
 					continue
@@ -477,9 +477,9 @@ func (x *XcoinOrderBook) checkXcoinDepthIsReady(symbol string) (int64, error) {
 	return readyID, nil
 }
 
-func (x *XcoinOrderBook) initXcoinDepthOrderBook(result myxcoinapi.WsDepth) error {
+func (x *XcoinOrderBook) initXcoinDepthOrderBook(businessType XcoinBusinessType, result myxcoinapi.WsDepth) error {
 	x.initAndClearXcoinDepthOrderBook(result)
-	if err := x.saveXcoinDepthOrderBook(result); err != nil {
+	if err := x.saveXcoinDepthOrderBook(businessType, result); err != nil {
 		return err
 	}
 	return nil
@@ -499,7 +499,7 @@ func (x *XcoinOrderBook) initAndClearXcoinDepthOrderBook(result myxcoinapi.WsDep
 }
 
 // 将Depth保存至OrderBook
-func (x *XcoinOrderBook) saveXcoinDepthOrderBook(result myxcoinapi.WsDepth) error {
+func (x *XcoinOrderBook) saveXcoinDepthOrderBook(businessType XcoinBusinessType, result myxcoinapi.WsDepth) error {
 	Symbol := result.Symbol
 	lastID, err := strconv.ParseInt(result.LastUpdateId, 10, 64)
 	if err != nil {
@@ -575,7 +575,7 @@ func (x *XcoinOrderBook) saveXcoinDepthOrderBook(result myxcoinapi.WsDepth) erro
 	depth := &Depth{
 		UId:         lastID,
 		PreUId:      lastUpdateId,
-		AccountType: XCOIN_SPOT.String(),
+		AccountType: businessType.String(),
 		Exchange:    x.Exchange.String(),
 		Symbol:      Symbol,
 		Timestamp:   targetTs,
