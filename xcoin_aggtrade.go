@@ -88,7 +88,7 @@ func (x *XcoinAggTrade) subscribeXcoinAggTradeMultiple(client *myxcoinapi.Public
 				symbolKey := r.WsSubscribeArg.Symbol
 
 				now := time.Now().UnixMilli()
-				targetTs := stringToInt64(r.Ts) + x.parent.GetServerTimeDelta()
+				targetTs := r.Ts + x.parent.GetServerTimeDelta()
 				if targetTs > now {
 					targetTs = now
 				}
