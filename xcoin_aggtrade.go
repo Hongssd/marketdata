@@ -14,7 +14,6 @@ type XcoinAggTrade struct {
 	perConnSubNum   int64
 	perSubMaxLen    int
 	Exchange        Exchange
-	BusinessType    XcoinBusinessType
 	AggTradeMap     *MySyncMap[string, *AggTrade]
 	WsClientListMap *MySyncMap[*myxcoinapi.PublicWsStreamClient, *int64]
 	WsClientMap     *MySyncMap[string, *myxcoinapi.PublicWsStreamClient]
@@ -38,7 +37,6 @@ func (xm *XcoinMarketData) newXcoinAggTrade(config XcoinAggTradeConfig) *XcoinAg
 		perConnSubNum:   config.PerConnSubNum,
 		perSubMaxLen:    config.PerSubMaxLen,
 		Exchange:        XCOIN,
-		BusinessType:    XCOIN_SPOT,
 		AggTradeMap:     GetPointer(NewMySyncMap[string, *AggTrade]()),
 		WsClientListMap: GetPointer(NewMySyncMap[*myxcoinapi.PublicWsStreamClient, *int64]()),
 		WsClientMap:     GetPointer(NewMySyncMap[string, *myxcoinapi.PublicWsStreamClient]()),
@@ -64,8 +62,8 @@ func (x *XcoinAggTrade) GetCurrentOrNewWsClient() (*myxcoinapi.PublicWsStreamCli
 }
 
 // 订阅Xcoin有限档交易流底层执行
-func (x *XcoinAggTrade) subscribeXcoinAggTradeMultiple(client *myxcoinapi.PublicWsStreamClient, symbols []string, callback func(aggTrade *AggTrade, err error)) error {
-	xcoinSub, err := client.SubscribeTradeMulti(x.BusinessType.String(), symbols...)
+func (x *XcoinAggTrade) subscribeXcoinAggTradeMultiple(client *myxcoinapi.PublicWsStreamClient, businessType XcoinBusinessType, symbols []string, callback func(aggTrade *AggTrade, err error)) error {
+	xcoinSub, err := client.SubscribeTradeMulti(businessType.String(), symbols...)
 	if err != nil {
 		log.Error(err)
 		return err
@@ -127,7 +125,7 @@ func (x *XcoinAggTrade) subscribeXcoinAggTradeMultiple(client *myxcoinapi.Public
 }
 
 // 取消订阅交易流
-func (x *XcoinAggTrade) UnSubscribeXcoinAggTrade(symbol string) error {
+func (x *XcoinAggTrade) UnSubscribeXcoinAggTrade(businessType XcoinBusinessType, symbol string) error {
 	symbolKey := symbol
 	_, ok := x.SubMap.Load(symbolKey)
 	if !ok {
@@ -137,7 +135,7 @@ func (x *XcoinAggTrade) UnSubscribeXcoinAggTrade(symbol string) error {
 	if !ok {
 		return nil
 	}
-	return client.UnsubscribeTradeMulti(x.BusinessType.String(), symbol)
+	return client.UnsubscribeTradeMulti(businessType.String(), symbol)
 }
 
 // 订阅交易流
@@ -171,7 +169,7 @@ func (x *XcoinAggTrade) SubscribeAggTradesWithCallBack(businessType XcoinBusines
 			if err != nil {
 				return err
 			}
-			err = x.subscribeXcoinAggTradeMultiple(client, tempSymbols, callback)
+			err = x.subscribeXcoinAggTradeMultiple(client, businessType, tempSymbols, callback)
 			if err != nil {
 				return err
 			}
@@ -187,7 +185,7 @@ func (x *XcoinAggTrade) SubscribeAggTradesWithCallBack(businessType XcoinBusines
 		if err != nil {
 			return err
 		}
-		err = x.subscribeXcoinAggTradeMultiple(client, symbols, callback)
+		err = x.subscribeXcoinAggTradeMultiple(client, businessType, symbols, callback)
 		if err != nil {
 			return err
 		}
