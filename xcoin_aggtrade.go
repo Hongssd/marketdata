@@ -93,12 +93,17 @@ func (x *XcoinAggTrade) subscribeXcoinAggTradeMultiple(client *myxcoinapi.Public
 					targetTs = now
 				}
 				aggTrade := &AggTrade{
-					Symbol:    symbolKey,
-					Price:     stringToFloat64(r.Price),
-					Quantity:  stringToFloat64(r.Qty),
-					Timestamp: targetTs,
-					TradeTime: targetTs,
-					IsMarket:  r.Side == "buy",
+					AId:         r.Id,
+					Exchange:    x.Exchange.String(),
+					AccountType: r.BusinessType,
+					Symbol:      symbolKey,
+					Price:       stringToFloat64(r.Price),
+					Quantity:    stringToFloat64(r.Qty),
+					Timestamp:   targetTs,
+					TradeTime:   targetTs,
+					IsMarket:    r.Side == "buy",
+					Last:        stringToInt64(r.Id),
+					First:       stringToInt64(r.Id),
 				}
 				x.AggTradeMap.Store(symbolKey, aggTrade)
 				if callback != nil {
