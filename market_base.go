@@ -3,6 +3,7 @@ package marketdata
 import (
 	"github.com/Hongssd/myasterapi"
 	"github.com/Hongssd/mybinanceapi"
+	"github.com/Hongssd/mybitgetapi"
 	"github.com/Hongssd/myokxapi"
 	"github.com/Hongssd/mysunxapi"
 	"github.com/Hongssd/myxcoinapi"
@@ -14,6 +15,7 @@ var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 var log = logrus.New()
 var binance = mybinanceapi.MyBinance{}
+var bitget = mybitgetapi.MyBitget{}
 var okx = myokxapi.MyOkx{}
 var aster = myasterapi.MyAster{}
 var sunx = mysunxapi.MySunx{}
