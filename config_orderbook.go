@@ -1,6 +1,7 @@
 package marketdata
 
 import (
+	"github.com/Hongssd/mybitgetapi"
 	"github.com/Hongssd/myokxapi"
 	"github.com/Hongssd/mysunxapi"
 	"github.com/Hongssd/myxcoinapi"
@@ -90,6 +91,21 @@ type XcoinOrderBookConfig struct {
 	PerSubMaxLen              int   //每条链接每次订阅的最大数量
 	CallBackDepthLevel        int64 //回调深度档位
 	CallBackDepthTimeoutMilli int64 //超时毫秒数
+}
+
+type BitgetOrderBookConfig struct {
+	SpotConfig        BitgetOrderBookConfigBase
+	UsdtFuturesConfig BitgetOrderBookConfigBase
+	CoinFuturesConfig BitgetOrderBookConfigBase
+	UsdcFuturesConfig BitgetOrderBookConfigBase
+}
+
+type BitgetOrderBookConfigBase struct {
+	WsBooksType               mybitgetapi.WsBooksType // 全量增量 books；有限档 books5 等
+	PerConnSubNum             int64                   //每条链接订阅的数量
+	PerSubMaxLen              int                     //每条链接每次订阅的最大数量
+	CallBackDepthLevel        int64                   //回调深度档位
+	CallBackDepthTimeoutMilli int64                   //超时毫秒数
 }
 
 var BinanceOrderBookConfigDefault = BinanceOrderBookConfig{

@@ -5,6 +5,7 @@ go 1.25.1
 require (
 	github.com/Hongssd/myasterapi v0.0.2
 	github.com/Hongssd/mybinanceapi v1.10.1
+	github.com/Hongssd/mybitgetapi v0.0.1
 	github.com/Hongssd/mybybitapi v0.1.8
 	github.com/Hongssd/mygateapi v0.2.4
 	github.com/Hongssd/myokxapi v0.5.4

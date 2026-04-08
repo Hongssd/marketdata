@@ -7,6 +7,7 @@ import (
 
 	"github.com/Hongssd/mybybitapi"
 	"github.com/Hongssd/mygateapi"
+	"github.com/Hongssd/mybitgetapi"
 )
 
 type MySyncMap[K any, V any] struct {
@@ -118,6 +119,21 @@ func OkxGetServerTimeDelta() (int64, error) {
 		return 0, err
 	}
 	serverTime, err := strconv.ParseInt(res.Data[0].Ts, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	t2 := time.Now().UnixMilli()
+	delta := serverTime - (t2+t1)/2
+	return -delta, nil
+}
+
+func BitgetGetServerTimeDelta() (int64, error) {
+	t1 := time.Now().UnixMilli()
+	res, err := mybitgetapi.NewRestClient("", "", "").PublicRestClient().NewPublicRestClassicPublicTime().Do()
+	if err != nil {
+		return 0, err
+	}
+	serverTime, err := strconv.ParseInt(res.Data.ServerTime, 10, 64)
 	if err != nil {
 		return 0, err
 	}
