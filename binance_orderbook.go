@@ -68,9 +68,10 @@ func (b *BinanceOrderBook) newBinanceOrderBookBase(config BinanceOrderBookConfig
 	return &binanceOrderBookBase{
 		Exchange: BINANCE,
 		BinanceWsClientBase: BinanceWsClientBase{
-			perConnSubNum:   config.PerConnSubNum,
-			perSubMaxLen:    config.PerSubMaxLen,
-			WsClientListMap: GetPointer(NewMySyncMap[*mybinanceapi.WsStreamClient, *int64]()),
+			perConnSubNum:      config.PerConnSubNum,
+			perSubMaxLen:       config.PerSubMaxLen,
+			futureWsStreamTier: BinanceFutureWsStreamTierPublic,
+			WsClientListMap:    GetPointer(NewMySyncMap[*mybinanceapi.WsStreamClient, *int64]()),
 		},
 		uSpeed:                    config.USpeed,
 		limitRestCountPerMinute:   config.LimitRestCountPerMinute,
