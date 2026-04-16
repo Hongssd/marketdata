@@ -117,10 +117,10 @@ type BitgetAccountType string
 
 // 与 mybitgetapi UTA 公共 WS 的 instType（小写）一致：spot / usdt-futures / coin-futures / usdc-futures
 const (
-	BITGET_SPOT          BitgetAccountType = "spot"
-	BITGET_USDT_FUTURES  BitgetAccountType = "usdt-futures"
-	BITGET_COIN_FUTURES  BitgetAccountType = "coin-futures"
-	BITGET_USDC_FUTURES  BitgetAccountType = "usdc-futures"
+	BITGET_SPOT         BitgetAccountType = "spot"
+	BITGET_USDT_FUTURES BitgetAccountType = "usdt-futures"
+	BITGET_COIN_FUTURES BitgetAccountType = "coin-futures"
+	BITGET_USDC_FUTURES BitgetAccountType = "usdc-futures"
 )
 
 func (bat BitgetAccountType) String() string {
@@ -503,17 +503,15 @@ type BitgetInterval string
 
 const (
 	BITGET_INTERVAL_1m  BitgetInterval = "1m"
+	BITGET_INTERVAL_3m  BitgetInterval = "3m"
 	BITGET_INTERVAL_5m  BitgetInterval = "5m"
 	BITGET_INTERVAL_15m BitgetInterval = "15m"
 	BITGET_INTERVAL_30m BitgetInterval = "30m"
-	BITGET_INTERVAL_1h  BitgetInterval = "1h"
-	BITGET_INTERVAL_4h  BitgetInterval = "4h"
-	BITGET_INTERVAL_6h  BitgetInterval = "6h"
-	BITGET_INTERVAL_12h BitgetInterval = "12h"
-	BITGET_INTERVAL_1d  BitgetInterval = "1d"
-	BITGET_INTERVAL_3d  BitgetInterval = "3d"
-	BITGET_INTERVAL_1w  BitgetInterval = "1w"
-	BITGET_INTERVAL_1M  BitgetInterval = "1M"
+	BITGET_INTERVAL_1H  BitgetInterval = "1H"
+	BITGET_INTERVAL_4H  BitgetInterval = "4H"
+	BITGET_INTERVAL_6H  BitgetInterval = "6H"
+	BITGET_INTERVAL_12H BitgetInterval = "12H"
+	BITGET_INTERVAL_1D  BitgetInterval = "1D"
 )
 
 func (i BitgetInterval) String() string {
@@ -532,17 +530,15 @@ var BitgetIntervalMillisecondMap = NewMySyncMap[string, int64]()
 
 func initBitgetIntervalMillisecondMap() {
 	BitgetIntervalMillisecondMap.Store(BITGET_INTERVAL_1m.String(), 60*1000)
+	BitgetIntervalMillisecondMap.Store(BITGET_INTERVAL_3m.String(), 3*60*1000)
 	BitgetIntervalMillisecondMap.Store(BITGET_INTERVAL_5m.String(), 5*60*1000)
 	BitgetIntervalMillisecondMap.Store(BITGET_INTERVAL_15m.String(), 15*60*1000)
 	BitgetIntervalMillisecondMap.Store(BITGET_INTERVAL_30m.String(), 30*60*1000)
-	BitgetIntervalMillisecondMap.Store(BITGET_INTERVAL_1h.String(), 60*60*1000)
-	BitgetIntervalMillisecondMap.Store(BITGET_INTERVAL_4h.String(), 4*60*60*1000)
-	BitgetIntervalMillisecondMap.Store(BITGET_INTERVAL_6h.String(), 6*60*60*1000)
-	BitgetIntervalMillisecondMap.Store(BITGET_INTERVAL_12h.String(), 12*60*60*1000)
-	BitgetIntervalMillisecondMap.Store(BITGET_INTERVAL_1d.String(), 24*60*60*1000)
-	BitgetIntervalMillisecondMap.Store(BITGET_INTERVAL_3d.String(), 3*24*60*60*1000)
-	BitgetIntervalMillisecondMap.Store(BITGET_INTERVAL_1w.String(), 7*24*60*60*1000)
-	BitgetIntervalMillisecondMap.Store(BITGET_INTERVAL_1M.String(), 30*24*60*60*1000)
+	BitgetIntervalMillisecondMap.Store(BITGET_INTERVAL_1H.String(), 60*60*1000)
+	BitgetIntervalMillisecondMap.Store(BITGET_INTERVAL_4H.String(), 4*60*60*1000)
+	BitgetIntervalMillisecondMap.Store(BITGET_INTERVAL_6H.String(), 6*60*60*1000)
+	BitgetIntervalMillisecondMap.Store(BITGET_INTERVAL_12H.String(), 12*60*60*1000)
+	BitgetIntervalMillisecondMap.Store(BITGET_INTERVAL_1D.String(), 24*60*60*1000)
 }
 
 func init() {
