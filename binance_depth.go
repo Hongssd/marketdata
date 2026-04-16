@@ -50,9 +50,10 @@ func (b *BinanceDepth) newBinanceDepthBase(config BinanceDepthConfigBase) *binan
 	return &binanceDepthBase{
 		Exchange: BINANCE,
 		BinanceWsClientBase: BinanceWsClientBase{
-			perConnSubNum:   config.PerConnSubNum,
-			perSubMaxLen:    config.PerSubMaxLen,
-			WsClientListMap: GetPointer(NewMySyncMap[*mybinanceapi.WsStreamClient, *int64]()),
+			perConnSubNum:      config.PerConnSubNum,
+			perSubMaxLen:       config.PerSubMaxLen,
+			futureWsStreamTier: BinanceFutureWsStreamTierPublic,
+			WsClientListMap:    GetPointer(NewMySyncMap[*mybinanceapi.WsStreamClient, *int64]()),
 		},
 		level:       config.Level,
 		uSpeed:      config.USpeed,
