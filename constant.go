@@ -33,6 +33,15 @@ func (bat BinanceAccountType) String() string {
 	return string(bat)
 }
 
+// BinanceFutureWsStreamTier 仅对 BINANCE_FUTURE（USDT-M）WebSocket 生效：币安将 fstream 拆分为 /public 与 /market。
+// Spot、SWAP 仍走各自原有建连逻辑，忽略该字段。
+type BinanceFutureWsStreamTier int
+
+const (
+	BinanceFutureWsStreamTierMarket BinanceFutureWsStreamTier = iota
+	BinanceFutureWsStreamTierPublic
+)
+
 type OkxAccountType string
 
 const (

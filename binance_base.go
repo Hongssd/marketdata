@@ -5,7 +5,9 @@ import "github.com/Hongssd/mybinanceapi"
 type BinanceWsClientBase struct {
 	perConnSubNum   int64
 	perSubMaxLen    int
-	WsClientListMap *MySyncMap[*mybinanceapi.WsStreamClient, *int64] //ws client->subscribe count
+	// futureWsStreamTier 仅 BINANCE_FUTURE 建连时使用：depth/bookTicker 等须为 Public，其余市场流为 Market。
+	futureWsStreamTier BinanceFutureWsStreamTier
+	WsClientListMap    *MySyncMap[*mybinanceapi.WsStreamClient, *int64] //ws client->subscribe count
 }
 
 func (b *BinanceWsClientBase) GetCurrentOrNewWsClient(accountType BinanceAccountType) (*mybinanceapi.WsStreamClient, error) {
@@ -27,7 +29,11 @@ func (b *BinanceWsClientBase) GetCurrentOrNewWsClient(accountType BinanceAccount
 		case BINANCE_SPOT:
 			wsClient = &binance.NewSpotWsStreamClient().WsStreamClient
 		case BINANCE_FUTURE:
-			wsClient = &binance.NewFutureWsStreamClient().WsStreamClient
+			if b.futureWsStreamTier == BinanceFutureWsStreamTierPublic {
+				wsClient = &binance.NewFuturePublicWsStreamClient().WsStreamClient
+			} else {
+				wsClient = &binance.NewFutureMarketWsStreamClient().WsStreamClient
+			}
 		case BINANCE_SWAP:
 			wsClient = &binance.NewSwapWsStreamClient().WsStreamClient
 		}
