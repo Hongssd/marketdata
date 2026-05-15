@@ -388,7 +388,7 @@ func (p *PolymarketOrderBook) updateDepthMeta(assetID string, ts int64) {
 	p.OrderBookMap.Store(assetID, &Depth{
 		UId:         uid,
 		PreUId:      preUID,
-		AccountType: "MARKET",
+		AccountType: "",
 		Exchange:    p.Exchange.String(),
 		Symbol:      assetID,
 		Timestamp:   ts,
