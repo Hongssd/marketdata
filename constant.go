@@ -7,14 +7,15 @@ var ErrorAccountType = errors.New("account type error")
 type Exchange string
 
 const (
-	BINANCE Exchange = "BINANCE"
-	OKX     Exchange = "OKX"
-	BYBIT   Exchange = "BYBIT"
-	GATE    Exchange = "GATE"
-	ASTER   Exchange = "ASTER"
-	SUNX    Exchange = "SUNX"
-	XCOIN   Exchange = "XCOIN"
-	BITGET  Exchange = "BITGET"
+	BINANCE    Exchange = "BINANCE"
+	OKX        Exchange = "OKX"
+	BYBIT      Exchange = "BYBIT"
+	GATE       Exchange = "GATE"
+	ASTER      Exchange = "ASTER"
+	SUNX       Exchange = "SUNX"
+	XCOIN      Exchange = "XCOIN"
+	BITGET     Exchange = "BITGET"
+	POLYMARKET Exchange = "POLYMARKET"
 )
 
 func (e Exchange) String() string {
