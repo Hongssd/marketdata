@@ -218,11 +218,10 @@ func (b *binanceOrderBookBase) subscribeBinanceDepthMultipleWithZeroCopy(binance
 					if b.AccountType == BINANCE_SPOT {
 						if result.UpperU > lastLowerU+1 {
 							// log.Warnf("发生丢包: %s:%s U:%d, lu:%d", result.AccountType, result.Symbol, result.UpperU, lastLowerU)
-							//清空相关数据
+							//清空相关数据（保留增量缓存，供 REST 快照后桥接）
 							b.OrderBookReadyUpdateIdMap.Delete(Symbol)
 							b.OrderBookMap.Delete(Symbol)
 							b.OrderBookLastUpdateIdMap.Delete(Symbol)
-							b.OrderBookCacheMap.Delete(Symbol)
 							b.OrderBookRBTreeMap.Delete(Symbol)
 							//重新初始化深度
 							go func() {
@@ -241,11 +240,10 @@ func (b *binanceOrderBookBase) subscribeBinanceDepthMultipleWithZeroCopy(binance
 						if result.PreU > lastLowerU {
 							// log.Warnf("发生丢包: %s:%s preu:%d, lu:%d", result.AccountType, result.Symbol, result.PreU, lastLowerU)
 
-							//清空相关数据
+							//清空相关数据（保留增量缓存，供 REST 快照后桥接）
 							b.OrderBookReadyUpdateIdMap.Delete(Symbol)
 							b.OrderBookMap.Delete(Symbol)
 							b.OrderBookLastUpdateIdMap.Delete(Symbol)
-							b.OrderBookCacheMap.Delete(Symbol)
 							b.OrderBookRBTreeMap.Delete(Symbol)
 							//重新初始化深度
 							go func() {
@@ -378,15 +376,28 @@ func (b *binanceOrderBookBase) initBinanceDepthFunc(symbol string) error {
 	} else {
 		return nil
 	}
-	err := b.initBinanceDepthOrderBook(symbol)
-	for err != nil {
-		// log.Error(err)
-		time.Sleep(time.Second * 5)
-		log.Info("重新初始化币安深度: ", symbol)
-		err = b.initBinanceDepthOrderBook(symbol)
+	for {
+		err := b.initBinanceDepthOrderBook(symbol)
+		if err != nil {
+			// log.Error(err)
+			time.Sleep(time.Second * 5)
+			log.Info("重新初始化币安深度: ", symbol)
+			continue
+		}
+		//初始化完毕，将缓存保存至OrderBook；找不到 bridge 时不标 Ready，清盘口后重试（保留增量缓存）
+		err = b.saveBinanceDepthOrderBookFromCache(symbol)
+		if err != nil {
+			log.Error(err)
+			b.OrderBookReadyUpdateIdMap.Delete(symbol)
+			b.OrderBookMap.Delete(symbol)
+			b.OrderBookLastUpdateIdMap.Delete(symbol)
+			b.OrderBookRBTreeMap.Delete(symbol)
+			time.Sleep(time.Second * 5)
+			log.Info("重新初始化币安深度(桥接失败): ", symbol)
+			continue
+		}
+		return nil
 	}
-	//初始化完毕，将缓存保存至OrderBook
-	return b.saveBinanceDepthOrderBookFromCache(symbol)
 }
 
 // 检测深度是否准备好
@@ -557,30 +568,27 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBookFromCache(Symbol string)
 
 	// log.Info(lastUpdateId)
 	// log.Info(len(cacheList))
-	targetCacheList := []mybinanceapi.WsDepth{}
+	bridgeIdx := -1
 	for index, v := range cacheList {
 		if b.AccountType != BINANCE_SPOT {
 			if v.UpperU <= lastUpdateId && v.LowerU >= lastUpdateId {
-				err := b.saveBinanceDepthOrderBook(v)
-				if err != nil {
-					log.Error(err)
-					return err
-				}
-				targetCacheList = cacheList[index:]
+				bridgeIdx = index
 				break
 			}
 		} else {
 			if v.UpperU < lastUpdateId+1 && v.LowerU >= lastUpdateId+1 {
-				targetCacheList = cacheList[index:]
-				err := b.saveBinanceDepthOrderBook(v)
-				if err != nil {
-					log.Error(err)
-					return err
-				}
+				bridgeIdx = index
 				break
 			}
 		}
 	}
+	if bridgeIdx < 0 {
+		err := fmt.Errorf("%s depth bridge event not found for lastUpdateId=%d", Symbol, lastUpdateId)
+		log.Error(err)
+		return err
+	}
+
+	targetCacheList := cacheList[bridgeIdx:]
 	// log.Info(len(targetCacheList))
 	for _, v := range targetCacheList {
 		err := b.saveBinanceDepthOrderBook(v)
