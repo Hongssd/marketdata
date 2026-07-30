@@ -231,7 +231,7 @@ func (b *binanceOrderBookBase) subscribeBinanceDepthMultipleWithZeroCopy(binance
 								}
 							}()
 							continue
-						} else if result.UpperU < lastLowerU+1 && result.LowerU >= lastLowerU+1 {
+						} else if binanceSpotDepthBridges(result.UpperU, result.LowerU, lastLowerU) {
 							// log.Infof("首个正常数据包: %s:%s U:%d, u:%d lu:%d", result.AccountType, result.Symbol, result.UpperU, result.LowerU, lastLowerU)
 						} else {
 							// log.Infof("正常数据包: %s:%s U:%d, lu:%d", result.AccountType, result.Symbol, result.UpperU, lastLowerU)
@@ -384,8 +384,13 @@ func (b *binanceOrderBookBase) initBinanceDepthFunc(symbol string) error {
 			log.Info("重新初始化币安深度: ", symbol)
 			continue
 		}
-		//初始化完毕，将缓存保存至OrderBook；找不到 bridge 时不标 Ready，清盘口后重试（保留增量缓存）
+		//初始化完毕，将缓存保存至OrderBook；找不到 bridge 时不标 Ready。
+		//先短等缓存追赶同一快照，再清盘口重拉 REST（保留增量缓存）。
 		err = b.saveBinanceDepthOrderBookFromCache(symbol)
+		for retry := 0; err != nil && retry < 5; retry++ {
+			time.Sleep(200 * time.Millisecond)
+			err = b.saveBinanceDepthOrderBookFromCache(symbol)
+		}
 		if err != nil {
 			log.Error(err)
 			b.OrderBookReadyUpdateIdMap.Delete(symbol)
@@ -568,22 +573,9 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBookFromCache(Symbol string)
 
 	// log.Info(lastUpdateId)
 	// log.Info(len(cacheList))
-	bridgeIdx := -1
-	for index, v := range cacheList {
-		if b.AccountType != BINANCE_SPOT {
-			if v.UpperU <= lastUpdateId && v.LowerU >= lastUpdateId {
-				bridgeIdx = index
-				break
-			}
-		} else {
-			if v.UpperU < lastUpdateId+1 && v.LowerU >= lastUpdateId+1 {
-				bridgeIdx = index
-				break
-			}
-		}
-	}
+	bridgeIdx := findBinanceDepthBridgeIndex(b.AccountType, cacheList, lastUpdateId)
 	if bridgeIdx < 0 {
-		err := fmt.Errorf("%s depth bridge event not found for lastUpdateId=%d", Symbol, lastUpdateId)
+		err := fmt.Errorf("%s depth bridge event not found for lastUpdateId=%d cacheLen=%d", Symbol, lastUpdateId, len(cacheList))
 		log.Error(err)
 		return err
 	}
@@ -666,6 +658,31 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBook(result mybinanceapi.WsD
 	b.OrderBookMap.Store(Symbol, depth)
 
 	return nil
+}
+
+// binanceSpotDepthBridges 现货官方桥接条件: U <= lastUpdateId+1 <= u
+func binanceSpotDepthBridges(upperU, lowerU, lastUpdateId int64) bool {
+	return upperU <= lastUpdateId+1 && lowerU >= lastUpdateId+1
+}
+
+// binanceFutureDepthBridges 合约官方桥接条件: U <= lastUpdateId <= u
+func binanceFutureDepthBridges(upperU, lowerU, lastUpdateId int64) bool {
+	return upperU <= lastUpdateId && lowerU >= lastUpdateId
+}
+
+func findBinanceDepthBridgeIndex(accountType BinanceAccountType, cacheList []mybinanceapi.WsDepth, lastUpdateId int64) int {
+	for index, v := range cacheList {
+		if accountType == BINANCE_SPOT {
+			if binanceSpotDepthBridges(v.UpperU, v.LowerU, lastUpdateId) {
+				return index
+			}
+			continue
+		}
+		if binanceFutureDepthBridges(v.UpperU, v.LowerU, lastUpdateId) {
+			return index
+		}
+	}
+	return -1
 }
 
 func (b *binanceOrderBookBase) GetUidAndPreUid(result mybinanceapi.WsDepth) (int64, int64) {
