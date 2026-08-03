@@ -66,6 +66,31 @@ func TestBinanceSpotDepthBridges(t *testing.T) {
 	}
 }
 
+func TestBinanceFutureDepthBridges(t *testing.T) {
+	const lastUpdateId int64 = 100
+
+	tests := []struct {
+		name   string
+		upperU int64
+		lowerU int64
+		want   bool
+	}{
+		{name: "exact single update", upperU: 100, lowerU: 100, want: true},
+		{name: "range covering", upperU: 90, lowerU: 110, want: true},
+		{name: "before snapshot", upperU: 90, lowerU: 99, want: false},
+		{name: "after snapshot gap", upperU: 101, lowerU: 101, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := binanceFutureDepthBridges(tt.upperU, tt.lowerU, lastUpdateId)
+			if got != tt.want {
+				t.Fatalf("binanceFutureDepthBridges(%d,%d,%d)=%v want %v",
+					tt.upperU, tt.lowerU, lastUpdateId, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFindBinanceDepthBridgeIndex_SpotSingleUpdate(t *testing.T) {
 	lastUpdateId := int64(98026711703)
 	cacheList := []mybinanceapi.WsDepth{
@@ -75,6 +100,19 @@ func TestFindBinanceDepthBridgeIndex_SpotSingleUpdate(t *testing.T) {
 	}
 
 	idx := findBinanceDepthBridgeIndex(BINANCE_SPOT, cacheList, lastUpdateId)
+	if idx != 1 {
+		t.Fatalf("bridge index=%d want 1", idx)
+	}
+}
+
+func TestFindBinanceDepthBridgeIndex_FutureExact(t *testing.T) {
+	lastUpdateId := int64(11197998430576)
+	cacheList := []mybinanceapi.WsDepth{
+		{UpperU: lastUpdateId - 20, LowerU: lastUpdateId - 10},
+		{UpperU: lastUpdateId, LowerU: lastUpdateId},
+		{UpperU: lastUpdateId + 1, LowerU: lastUpdateId + 5},
+	}
+	idx := findBinanceDepthBridgeIndex(BINANCE_FUTURE, cacheList, lastUpdateId)
 	if idx != 1 {
 		t.Fatalf("bridge index=%d want 1", idx)
 	}
@@ -92,5 +130,91 @@ func TestFindBinanceDepthBridgeIndex_SpotOldConditionWouldMiss(t *testing.T) {
 	}
 	if !binanceSpotDepthBridges(upperU, lowerU, lastUpdateId) {
 		t.Fatal("fixed condition must accept U=u=lastUpdateId+1")
+	}
+}
+
+func TestClassifyBinanceDepthBridgeMiss(t *testing.T) {
+	lastUpdateId := int64(1000)
+
+	t.Run("empty", func(t *testing.T) {
+		got := classifyBinanceDepthBridgeMiss(BINANCE_FUTURE, nil, lastUpdateId)
+		if got != binanceDepthBridgeMissEmptyCache {
+			t.Fatalf("got %s want empty_cache", got)
+		}
+		if !shouldClearDepthCacheOnBridgeMiss(got) {
+			t.Fatal("empty cache should clear")
+		}
+	})
+
+	t.Run("cache behind snapshot", func(t *testing.T) {
+		cache := []mybinanceapi.WsDepth{
+			{UpperU: 900, LowerU: 910},
+			{UpperU: 911, LowerU: 990},
+		}
+		got := classifyBinanceDepthBridgeMiss(BINANCE_FUTURE, cache, lastUpdateId)
+		if got != binanceDepthBridgeMissCacheBehind {
+			t.Fatalf("got %s want cache_behind", got)
+		}
+		if shouldClearDepthCacheOnBridgeMiss(got) {
+			t.Fatal("cache_behind must keep cache for catch-up")
+		}
+		if !binanceDepthBridgeMissWorthWaiting(got) {
+			t.Fatal("cache_behind should wait")
+		}
+	})
+
+	t.Run("cache ahead after gap", func(t *testing.T) {
+		// 丢包后旧缓存被清掉前若只剩空洞之后的事件：min(U) > lastUpdateId
+		cache := []mybinanceapi.WsDepth{
+			{UpperU: 1100, LowerU: 1100},
+			{UpperU: 1101, LowerU: 1200},
+		}
+		got := classifyBinanceDepthBridgeMiss(BINANCE_FUTURE, cache, lastUpdateId)
+		if got != binanceDepthBridgeMissCacheAhead {
+			t.Fatalf("got %s want cache_ahead", got)
+		}
+		if !shouldClearDepthCacheOnBridgeMiss(got) {
+			t.Fatal("cache_ahead must clear cache before re-snapshot")
+		}
+		if binanceDepthBridgeMissWorthWaiting(got) {
+			t.Fatal("cache_ahead should not wait on same snapshot")
+		}
+	})
+
+	t.Run("middle hole no covering event", func(t *testing.T) {
+		cache := []mybinanceapi.WsDepth{
+			{UpperU: 900, LowerU: 950},
+			{UpperU: 1100, LowerU: 1150},
+		}
+		got := classifyBinanceDepthBridgeMiss(BINANCE_FUTURE, cache, lastUpdateId)
+		if got != binanceDepthBridgeMissNoCovering {
+			t.Fatalf("got %s want no_covering", got)
+		}
+		if !shouldClearDepthCacheOnBridgeMiss(got) {
+			t.Fatal("no_covering must clear cache")
+		}
+	})
+
+	t.Run("bridging succeeds", func(t *testing.T) {
+		cache := []mybinanceapi.WsDepth{
+			{UpperU: 990, LowerU: 1010},
+		}
+		got := classifyBinanceDepthBridgeMiss(BINANCE_FUTURE, cache, lastUpdateId)
+		if got != binanceDepthBridgeMissNone {
+			t.Fatalf("got %s want none", got)
+		}
+	})
+}
+
+func TestShouldClearDepthCacheOnBridgeMiss_SpotAhead(t *testing.T) {
+	lastUpdateId := int64(100)
+	// spot target = 101；缓存从 102 开始
+	cache := []mybinanceapi.WsDepth{
+		{UpperU: 102, LowerU: 102},
+		{UpperU: 103, LowerU: 110},
+	}
+	got := classifyBinanceDepthBridgeMiss(BINANCE_SPOT, cache, lastUpdateId)
+	if got != binanceDepthBridgeMissCacheAhead {
+		t.Fatalf("got %s want cache_ahead", got)
 	}
 }

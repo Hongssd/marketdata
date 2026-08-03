@@ -213,17 +213,12 @@ func (b *binanceOrderBookBase) subscribeBinanceDepthMultipleWithZeroCopy(binance
 					continue
 				}
 
-				//判断是否丢包
+				//判断是否丢包；官方要求从 REST 快照步骤重新初始化，并重新开始缓冲。
 				if lastLowerU, ok := b.OrderBookLastUpdateIdMap.Load(Symbol); ok {
 					if b.AccountType == BINANCE_SPOT {
 						if result.UpperU > lastLowerU+1 {
-							// log.Warnf("发生丢包: %s:%s U:%d, lu:%d", result.AccountType, result.Symbol, result.UpperU, lastLowerU)
-							//清空相关数据（保留增量缓存，供 REST 快照后桥接）
-							b.OrderBookReadyUpdateIdMap.Delete(Symbol)
-							b.OrderBookMap.Delete(Symbol)
-							b.OrderBookLastUpdateIdMap.Delete(Symbol)
-							b.OrderBookRBTreeMap.Delete(Symbol)
-							//重新初始化深度
+							b.resetBinanceDepthLocalState(Symbol, true)
+							b.saveBinanceDepthCache(result)
 							go func() {
 								err := b.initBinanceDepthFunc(result.Symbol)
 								if err != nil {
@@ -232,20 +227,17 @@ func (b *binanceOrderBookBase) subscribeBinanceDepthMultipleWithZeroCopy(binance
 							}()
 							continue
 						} else if binanceSpotDepthBridges(result.UpperU, result.LowerU, lastLowerU) {
-							// log.Infof("首个正常数据包: %s:%s U:%d, u:%d lu:%d", result.AccountType, result.Symbol, result.UpperU, result.LowerU, lastLowerU)
-						} else {
-							// log.Infof("正常数据包: %s:%s U:%d, lu:%d", result.AccountType, result.Symbol, result.UpperU, lastLowerU)
+							// 首个可衔接包
 						}
 					} else {
-						if result.PreU > lastLowerU {
-							// log.Warnf("发生丢包: %s:%s preu:%d, lu:%d", result.AccountType, result.Symbol, result.PreU, lastLowerU)
-
-							//清空相关数据（保留增量缓存，供 REST 快照后桥接）
-							b.OrderBookReadyUpdateIdMap.Delete(Symbol)
-							b.OrderBookMap.Delete(Symbol)
-							b.OrderBookLastUpdateIdMap.Delete(Symbol)
-							b.OrderBookRBTreeMap.Delete(Symbol)
-							//重新初始化深度
+						if result.LowerU <= lastLowerU {
+							// 过期/重复增量，直接丢弃（避免同一包重放把 pu!=last_u 误判为丢包）
+							continue
+						}
+						if result.PreU != lastLowerU {
+							// 官方: 新 event 的 pu 应等于上一 event 的 u，否则从快照步骤重同步
+							b.resetBinanceDepthLocalState(Symbol, true)
+							b.saveBinanceDepthCache(result)
 							go func() {
 								err := b.initBinanceDepthFunc(result.Symbol)
 								if err != nil {
@@ -253,10 +245,6 @@ func (b *binanceOrderBookBase) subscribeBinanceDepthMultipleWithZeroCopy(binance
 								}
 							}()
 							continue
-						} else if result.UpperU <= lastLowerU && result.LowerU >= lastLowerU {
-							// log.Infof("首个正常数据包: %s:%s preu:%d, u:%d U:%d lu:%d", result.AccountType, result.Symbol, result.PreU, result.LowerU, result.UpperU, lastLowerU)
-						} else {
-							// log.Infof("正常数据包: %s:%s preu:%d, lu:%d", result.AccountType, result.Symbol, result.PreU, lastLowerU)
 						}
 					}
 				}
@@ -364,6 +352,17 @@ func (b *binanceOrderBookBase) subscribeBinanceDepthMultipleWithZeroCopy(binance
 //	return b.subscribeBinanceDepthMultiple(binanceWsClient, []string{Symbol}, callBack)
 //}
 
+// resetBinanceDepthLocalState 清空本地盘口状态；clearCache=true 时同时丢弃增量缓存（官方重同步从重新缓冲开始）。
+func (b *binanceOrderBookBase) resetBinanceDepthLocalState(symbol string, clearCache bool) {
+	b.OrderBookReadyUpdateIdMap.Delete(symbol)
+	b.OrderBookMap.Delete(symbol)
+	b.OrderBookLastUpdateIdMap.Delete(symbol)
+	b.OrderBookRBTreeMap.Delete(symbol)
+	if clearCache {
+		b.OrderBookCacheMap.Delete(symbol)
+	}
+}
+
 // 初始化币安深度
 func (b *binanceOrderBookBase) initBinanceDepthFunc(symbol string) error {
 	mu, ok := b.IsInitActionMu.Load(symbol)
@@ -379,24 +378,33 @@ func (b *binanceOrderBookBase) initBinanceDepthFunc(symbol string) error {
 	for {
 		err := b.initBinanceDepthOrderBook(symbol)
 		if err != nil {
-			// log.Error(err)
 			time.Sleep(time.Second * 5)
 			log.Info("重新初始化币安深度: ", symbol)
 			continue
 		}
-		//初始化完毕，将缓存保存至OrderBook；找不到 bridge 时不标 Ready。
-		//先短等缓存追赶同一快照，再清盘口重拉 REST（保留增量缓存）。
+		// 初始化完毕，将缓存保存至 OrderBook；找不到 bridge 时不标 Ready。
+		// 缓存落后快照时短等追赶；缓存超前/中间空洞时清缓存后重拉 REST。
 		err = b.saveBinanceDepthOrderBookFromCache(symbol)
 		for retry := 0; err != nil && retry < 5; retry++ {
+			var bridgeErr *binanceDepthBridgeError
+			if errors.As(err, &bridgeErr) && !binanceDepthBridgeMissWorthWaiting(bridgeErr.Reason) {
+				break
+			}
 			time.Sleep(200 * time.Millisecond)
 			err = b.saveBinanceDepthOrderBookFromCache(symbol)
 		}
 		if err != nil {
-			log.Error(err)
-			b.OrderBookReadyUpdateIdMap.Delete(symbol)
-			b.OrderBookMap.Delete(symbol)
-			b.OrderBookLastUpdateIdMap.Delete(symbol)
-			b.OrderBookRBTreeMap.Delete(symbol)
+			clearCache := true
+			var bridgeErr *binanceDepthBridgeError
+			if errors.As(err, &bridgeErr) {
+				clearCache = shouldClearDepthCacheOnBridgeMiss(bridgeErr.Reason)
+				log.Errorf("%s depth bridge failed reason=%s lastUpdateId=%d cacheLen=%d minUpperU=%d maxLowerU=%d clearCache=%v",
+					bridgeErr.Symbol, bridgeErr.Reason, bridgeErr.LastUpdateId, bridgeErr.CacheLen,
+					bridgeErr.MinUpperU, bridgeErr.MaxLowerU, clearCache)
+			} else {
+				log.Error(err)
+			}
+			b.resetBinanceDepthLocalState(symbol, clearCache)
 			time.Sleep(time.Second * 5)
 			log.Info("重新初始化币安深度(桥接失败): ", symbol)
 			continue
@@ -463,8 +471,8 @@ func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
 		orderBook.PutAskLevels(askPrices, askQuantities)
 		b.OrderBookLastUpdateIdMap.Store(Symbol, depth.LastUpdateId)
 	case BINANCE_FUTURE:
-		//重新初始化
-		depth, err := binance.NewFutureRestClient("", "").NewFutureDepth().Symbol(Symbol).Limit(50).Do()
+		//重新初始化（官方文档推荐 limit=1000）
+		depth, err := binance.NewFutureRestClient("", "").NewFutureDepth().Symbol(Symbol).Limit(1000).Do()
 		if err != nil {
 			log.Error(err)
 			return err
@@ -499,8 +507,8 @@ func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
 		orderBook.PutAskLevels(askPrices, askQuantities)
 		b.OrderBookLastUpdateIdMap.Store(Symbol, depth.LastUpdateId)
 	case BINANCE_SWAP:
-		//重新初始化
-		depth, err := binance.NewSwapRestClient("", "").NewSwapDepth().Symbol(Symbol).Limit(50).Do()
+		//重新初始化（与 U 本位一致，使用更深快照便于本地维护）
+		depth, err := binance.NewSwapRestClient("", "").NewSwapDepth().Symbol(Symbol).Limit(1000).Do()
 		if err != nil {
 			log.Error(err)
 			return err
@@ -571,13 +579,18 @@ func (b *binanceOrderBookBase) saveBinanceDepthOrderBookFromCache(Symbol string)
 	})
 	sort.Sort(SortBinanceWsDepthSlice(cacheList))
 
-	// log.Info(lastUpdateId)
-	// log.Info(len(cacheList))
 	bridgeIdx := findBinanceDepthBridgeIndex(b.AccountType, cacheList, lastUpdateId)
 	if bridgeIdx < 0 {
-		err := fmt.Errorf("%s depth bridge event not found for lastUpdateId=%d cacheLen=%d", Symbol, lastUpdateId, len(cacheList))
-		log.Error(err)
-		return err
+		minUpperU, maxLowerU := binanceDepthCacheBounds(cacheList)
+		reason := classifyBinanceDepthBridgeMiss(b.AccountType, cacheList, lastUpdateId)
+		return &binanceDepthBridgeError{
+			Symbol:       Symbol,
+			LastUpdateId: lastUpdateId,
+			CacheLen:     len(cacheList),
+			MinUpperU:    minUpperU,
+			MaxLowerU:    maxLowerU,
+			Reason:       reason,
+		}
 	}
 
 	targetCacheList := cacheList[bridgeIdx:]
@@ -668,6 +681,87 @@ func binanceSpotDepthBridges(upperU, lowerU, lastUpdateId int64) bool {
 // binanceFutureDepthBridges 合约官方桥接条件: U <= lastUpdateId <= u
 func binanceFutureDepthBridges(upperU, lowerU, lastUpdateId int64) bool {
 	return upperU <= lastUpdateId && lowerU >= lastUpdateId
+}
+
+type binanceDepthBridgeMissReason string
+
+const (
+	binanceDepthBridgeMissNone        binanceDepthBridgeMissReason = "none"
+	binanceDepthBridgeMissEmptyCache  binanceDepthBridgeMissReason = "empty_cache"
+	binanceDepthBridgeMissCacheBehind binanceDepthBridgeMissReason = "cache_behind" // max(u) < target，可短等追赶
+	binanceDepthBridgeMissCacheAhead  binanceDepthBridgeMissReason = "cache_ahead"  // min(U) > target，快照过旧或丢包空洞
+	binanceDepthBridgeMissNoCovering  binanceDepthBridgeMissReason = "no_covering"  // 缓存跨越 target 但无覆盖事件（中间空洞）
+)
+
+type binanceDepthBridgeError struct {
+	Symbol       string
+	LastUpdateId int64
+	CacheLen     int
+	MinUpperU    int64
+	MaxLowerU    int64
+	Reason       binanceDepthBridgeMissReason
+}
+
+func (e *binanceDepthBridgeError) Error() string {
+	return fmt.Sprintf("%s depth bridge event not found for lastUpdateId=%d cacheLen=%d minUpperU=%d maxLowerU=%d reason=%s",
+		e.Symbol, e.LastUpdateId, e.CacheLen, e.MinUpperU, e.MaxLowerU, e.Reason)
+}
+
+func binanceDepthBridgeTargetID(accountType BinanceAccountType, lastUpdateId int64) int64 {
+	if accountType == BINANCE_SPOT {
+		return lastUpdateId + 1
+	}
+	return lastUpdateId
+}
+
+func binanceDepthCacheBounds(cacheList []mybinanceapi.WsDepth) (minUpperU, maxLowerU int64) {
+	if len(cacheList) == 0 {
+		return 0, 0
+	}
+	minUpperU = cacheList[0].UpperU
+	maxLowerU = cacheList[0].LowerU
+	for i := 1; i < len(cacheList); i++ {
+		if cacheList[i].UpperU < minUpperU {
+			minUpperU = cacheList[i].UpperU
+		}
+		if cacheList[i].LowerU > maxLowerU {
+			maxLowerU = cacheList[i].LowerU
+		}
+	}
+	return minUpperU, maxLowerU
+}
+
+// classifyBinanceDepthBridgeMiss 在找不到 bridge 时区分缓存落后/超前/中间空洞，指导是否清缓存重同步。
+func classifyBinanceDepthBridgeMiss(accountType BinanceAccountType, cacheList []mybinanceapi.WsDepth, lastUpdateId int64) binanceDepthBridgeMissReason {
+	if findBinanceDepthBridgeIndex(accountType, cacheList, lastUpdateId) >= 0 {
+		return binanceDepthBridgeMissNone
+	}
+	if len(cacheList) == 0 {
+		return binanceDepthBridgeMissEmptyCache
+	}
+	target := binanceDepthBridgeTargetID(accountType, lastUpdateId)
+	minUpperU, maxLowerU := binanceDepthCacheBounds(cacheList)
+	if maxLowerU < target {
+		return binanceDepthBridgeMissCacheBehind
+	}
+	if minUpperU > target {
+		return binanceDepthBridgeMissCacheAhead
+	}
+	return binanceDepthBridgeMissNoCovering
+}
+
+func shouldClearDepthCacheOnBridgeMiss(reason binanceDepthBridgeMissReason) bool {
+	switch reason {
+	case binanceDepthBridgeMissCacheBehind:
+		// 缓存仍可能追上更新的快照，保留继续缓冲
+		return false
+	default:
+		return true
+	}
+}
+
+func binanceDepthBridgeMissWorthWaiting(reason binanceDepthBridgeMissReason) bool {
+	return reason == binanceDepthBridgeMissCacheBehind || reason == binanceDepthBridgeMissEmptyCache
 }
 
 func findBinanceDepthBridgeIndex(accountType BinanceAccountType, cacheList []mybinanceapi.WsDepth, lastUpdateId int64) int {
