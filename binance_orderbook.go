@@ -375,6 +375,8 @@ func (b *binanceOrderBookBase) initBinanceDepthFunc(symbol string) error {
 	} else {
 		return nil
 	}
+
+snapshotLoop:
 	for {
 		err := b.initBinanceDepthOrderBook(symbol)
 		if err != nil {
@@ -382,34 +384,55 @@ func (b *binanceOrderBookBase) initBinanceDepthFunc(symbol string) error {
 			log.Info("重新初始化币安深度: ", symbol)
 			continue
 		}
-		// 初始化完毕，将缓存保存至 OrderBook；找不到 bridge 时不标 Ready。
-		// 缓存落后快照时短等追赶；缓存超前/中间空洞时清缓存后重拉 REST。
-		err = b.saveBinanceDepthOrderBookFromCache(symbol)
-		for retry := 0; err != nil && retry < 5; retry++ {
-			var bridgeErr *binanceDepthBridgeError
-			if errors.As(err, &bridgeErr) && !binanceDepthBridgeMissWorthWaiting(bridgeErr.Reason) {
-				break
-			}
-			time.Sleep(200 * time.Millisecond)
+
+		// 同快照上等待可桥接增量。低活跃盘口可能长时间无推送（empty_cache），
+		// 官方对 snapshot 落后于首个缓冲事件（cache_ahead）是保留缓冲并重取快照。
+		waitCount := 0
+		for {
 			err = b.saveBinanceDepthOrderBookFromCache(symbol)
-		}
-		if err != nil {
-			clearCache := true
+			if err == nil {
+				return nil
+			}
+
 			var bridgeErr *binanceDepthBridgeError
-			if errors.As(err, &bridgeErr) {
-				clearCache = shouldClearDepthCacheOnBridgeMiss(bridgeErr.Reason)
+			if !errors.As(err, &bridgeErr) {
+				log.Error(err)
+				b.resetBinanceDepthLocalState(symbol, true)
+				time.Sleep(time.Second * 5)
+				log.Info("重新初始化币安深度(桥接失败): ", symbol)
+				continue snapshotLoop
+			}
+
+			clearCache := shouldClearDepthCacheOnBridgeMiss(bridgeErr.Reason)
+			switch bridgeErr.Reason {
+			case binanceDepthBridgeMissEmptyCache, binanceDepthBridgeMissCacheBehind:
+				// 同快照一直等：不清缓存、不重拉 REST（避免低活跃盘口空转）
+				waitCount++
+				if waitCount == 1 || waitCount%20 == 0 {
+					log.Infof("%s depth bridge waiting reason=%s lastUpdateId=%d cacheLen=%d minUpperU=%d maxLowerU=%d waitCount=%d",
+						bridgeErr.Symbol, bridgeErr.Reason, bridgeErr.LastUpdateId, bridgeErr.CacheLen,
+						bridgeErr.MinUpperU, bridgeErr.MaxLowerU, waitCount)
+				}
+				time.Sleep(500 * time.Millisecond)
+				continue
+			case binanceDepthBridgeMissCacheAhead:
+				// 快照过旧：保留已缓冲事件，立刻重取 REST
 				log.Errorf("%s depth bridge failed reason=%s lastUpdateId=%d cacheLen=%d minUpperU=%d maxLowerU=%d clearCache=%v",
 					bridgeErr.Symbol, bridgeErr.Reason, bridgeErr.LastUpdateId, bridgeErr.CacheLen,
 					bridgeErr.MinUpperU, bridgeErr.MaxLowerU, clearCache)
-			} else {
-				log.Error(err)
+				b.resetBinanceDepthLocalState(symbol, clearCache)
+				continue snapshotLoop
+			default:
+				// no_covering 等：清缓存后重同步
+				log.Errorf("%s depth bridge failed reason=%s lastUpdateId=%d cacheLen=%d minUpperU=%d maxLowerU=%d clearCache=%v",
+					bridgeErr.Symbol, bridgeErr.Reason, bridgeErr.LastUpdateId, bridgeErr.CacheLen,
+					bridgeErr.MinUpperU, bridgeErr.MaxLowerU, clearCache)
+				b.resetBinanceDepthLocalState(symbol, clearCache)
+				time.Sleep(time.Second * 5)
+				log.Info("重新初始化币安深度(桥接失败): ", symbol)
+				continue snapshotLoop
 			}
-			b.resetBinanceDepthLocalState(symbol, clearCache)
-			time.Sleep(time.Second * 5)
-			log.Info("重新初始化币安深度(桥接失败): ", symbol)
-			continue
 		}
-		return nil
 	}
 }
 
@@ -731,7 +754,8 @@ func binanceDepthCacheBounds(cacheList []mybinanceapi.WsDepth) (minUpperU, maxLo
 	return minUpperU, maxLowerU
 }
 
-// classifyBinanceDepthBridgeMiss 在找不到 bridge 时区分缓存落后/超前/中间空洞，指导是否清缓存重同步。
+// classifyBinanceDepthBridgeMiss 在找不到 bridge 时区分缓存落后/超前/中间空洞。
+// empty/behind：同快照继续等；ahead：保留缓冲重取快照；no_covering：清缓存重同步。
 func classifyBinanceDepthBridgeMiss(accountType BinanceAccountType, cacheList []mybinanceapi.WsDepth, lastUpdateId int64) binanceDepthBridgeMissReason {
 	if findBinanceDepthBridgeIndex(accountType, cacheList, lastUpdateId) >= 0 {
 		return binanceDepthBridgeMissNone
@@ -752,10 +776,11 @@ func classifyBinanceDepthBridgeMiss(accountType BinanceAccountType, cacheList []
 
 func shouldClearDepthCacheOnBridgeMiss(reason binanceDepthBridgeMissReason) bool {
 	switch reason {
-	case binanceDepthBridgeMissCacheBehind:
-		// 缓存仍可能追上更新的快照，保留继续缓冲
+	case binanceDepthBridgeMissEmptyCache, binanceDepthBridgeMissCacheBehind, binanceDepthBridgeMissCacheAhead:
+		// empty/behind：继续等增量；ahead：官方要求保留缓冲并重取快照
 		return false
 	default:
+		// no_covering：中间空洞，丢弃后重新缓冲
 		return true
 	}
 }

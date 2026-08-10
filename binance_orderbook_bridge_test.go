@@ -141,8 +141,11 @@ func TestClassifyBinanceDepthBridgeMiss(t *testing.T) {
 		if got != binanceDepthBridgeMissEmptyCache {
 			t.Fatalf("got %s want empty_cache", got)
 		}
-		if !shouldClearDepthCacheOnBridgeMiss(got) {
-			t.Fatal("empty cache should clear")
+		if shouldClearDepthCacheOnBridgeMiss(got) {
+			t.Fatal("empty cache must keep waiting without clear")
+		}
+		if !binanceDepthBridgeMissWorthWaiting(got) {
+			t.Fatal("empty cache should wait")
 		}
 	})
 
@@ -164,7 +167,7 @@ func TestClassifyBinanceDepthBridgeMiss(t *testing.T) {
 	})
 
 	t.Run("cache ahead after gap", func(t *testing.T) {
-		// 丢包后旧缓存被清掉前若只剩空洞之后的事件：min(U) > lastUpdateId
+		// 快照落后于首个缓冲事件：min(U) > lastUpdateId，应保留缓存重取快照
 		cache := []mybinanceapi.WsDepth{
 			{UpperU: 1100, LowerU: 1100},
 			{UpperU: 1101, LowerU: 1200},
@@ -173,8 +176,8 @@ func TestClassifyBinanceDepthBridgeMiss(t *testing.T) {
 		if got != binanceDepthBridgeMissCacheAhead {
 			t.Fatalf("got %s want cache_ahead", got)
 		}
-		if !shouldClearDepthCacheOnBridgeMiss(got) {
-			t.Fatal("cache_ahead must clear cache before re-snapshot")
+		if shouldClearDepthCacheOnBridgeMiss(got) {
+			t.Fatal("cache_ahead must keep cache and re-fetch snapshot")
 		}
 		if binanceDepthBridgeMissWorthWaiting(got) {
 			t.Fatal("cache_ahead should not wait on same snapshot")
