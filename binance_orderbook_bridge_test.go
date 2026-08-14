@@ -2,6 +2,7 @@ package marketdata
 
 import (
 	"testing"
+	"time"
 
 	"github.com/Hongssd/mybinanceapi"
 )
@@ -219,5 +220,123 @@ func TestShouldClearDepthCacheOnBridgeMiss_SpotAhead(t *testing.T) {
 	got := classifyBinanceDepthBridgeMiss(BINANCE_SPOT, cache, lastUpdateId)
 	if got != binanceDepthBridgeMissCacheAhead {
 		t.Fatalf("got %s want cache_ahead", got)
+	}
+}
+
+func TestDecideBinanceDepthBridgeMissAction(t *testing.T) {
+	tests := []struct {
+		reason binanceDepthBridgeMissReason
+		want   binanceDepthMissAction
+	}{
+		{binanceDepthBridgeMissEmptyCache, binanceDepthMissWaitSameSnapshot},
+		{binanceDepthBridgeMissCacheBehind, binanceDepthMissWaitSameSnapshot},
+		{binanceDepthBridgeMissCacheAhead, binanceDepthMissRefetchKeepCache},
+		{binanceDepthBridgeMissNoCovering, binanceDepthMissRestartClearCache},
+		{binanceDepthBridgeMissNone, binanceDepthMissRestartClearCache},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.reason), func(t *testing.T) {
+			got := decideBinanceDepthBridgeMissAction(tt.reason)
+			if got != tt.want {
+				t.Fatalf("got %d want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBinanceDepthBackoffDuration(t *testing.T) {
+	min := 200 * time.Millisecond
+	max := 2 * time.Second
+	if got := binanceDepthBackoffDuration(0, min, max); got != min {
+		t.Fatalf("attempt0=%s want %s", got, min)
+	}
+	if got := binanceDepthBackoffDuration(1, min, max); got != 400*time.Millisecond {
+		t.Fatalf("attempt1=%s want 400ms", got)
+	}
+	if got := binanceDepthBackoffDuration(2, min, max); got != 800*time.Millisecond {
+		t.Fatalf("attempt2=%s want 800ms", got)
+	}
+	if got := binanceDepthBackoffDuration(10, min, max); got != max {
+		t.Fatalf("attempt10=%s want max %s", got, max)
+	}
+}
+
+func TestBinanceDepthCacheNeedsRestart(t *testing.T) {
+	if binanceDepthCacheNeedsRestart(4095, 4096) {
+		t.Fatal("4095 should not restart")
+	}
+	if !binanceDepthCacheNeedsRestart(4096, 4096) {
+		t.Fatal("4096 should restart")
+	}
+	if binanceDepthCacheNeedsRestart(100, 0) {
+		t.Fatal("cap 0 disables restart")
+	}
+}
+
+func TestBinanceDepthEventFollows_Future(t *testing.T) {
+	last := int64(100)
+	if got := binanceDepthEventFollows(BINANCE_FUTURE, last, mybinanceapi.WsDepth{UpperU: 90, LowerU: 99, PreU: 89}); got != binanceDepthFollowSkip {
+		t.Fatalf("stale got %d", got)
+	}
+	if got := binanceDepthEventFollows(BINANCE_FUTURE, last, mybinanceapi.WsDepth{UpperU: 101, LowerU: 105, PreU: 100}); got != binanceDepthFollowApply {
+		t.Fatalf("pu match got %d", got)
+	}
+	if got := binanceDepthEventFollows(BINANCE_FUTURE, last, mybinanceapi.WsDepth{UpperU: 101, LowerU: 105, PreU: 0}); got != binanceDepthFollowApply {
+		t.Fatalf("pre=0 fallback UpperU-1 got %d", got)
+	}
+	if got := binanceDepthEventFollows(BINANCE_FUTURE, last, mybinanceapi.WsDepth{UpperU: 110, LowerU: 120, PreU: 109}); got != binanceDepthFollowHole {
+		t.Fatalf("gap got %d", got)
+	}
+}
+
+func TestApplyBinanceDepthCacheContiguous_FutureHole(t *testing.T) {
+	last := int64(100)
+	cache := []mybinanceapi.WsDepth{
+		{UpperU: 90, LowerU: 100, PreU: 89},
+		{UpperU: 101, LowerU: 110, PreU: 100},
+		{UpperU: 200, LowerU: 210, PreU: 199},
+	}
+	var applied []int64
+	gotLast, hole, err := applyBinanceDepthCacheContiguous(BINANCE_FUTURE, last, cache, 0, func(v mybinanceapi.WsDepth) error {
+		applied = append(applied, v.LowerU)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hole {
+		t.Fatal("expected hole after gap")
+	}
+	if gotLast != 110 {
+		t.Fatalf("gotLast=%d want 110", gotLast)
+	}
+	if len(applied) != 2 || applied[0] != 100 || applied[1] != 110 {
+		t.Fatalf("applied=%v", applied)
+	}
+}
+
+func TestApplyBinanceDepthCacheContiguous_FutureOk(t *testing.T) {
+	last := int64(100)
+	cache := []mybinanceapi.WsDepth{
+		{UpperU: 95, LowerU: 100, PreU: 94},
+		{UpperU: 101, LowerU: 103, PreU: 100},
+		{UpperU: 104, LowerU: 104, PreU: 103},
+	}
+	var applied []int64
+	gotLast, hole, err := applyBinanceDepthCacheContiguous(BINANCE_FUTURE, last, cache, 0, func(v mybinanceapi.WsDepth) error {
+		applied = append(applied, v.LowerU)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hole {
+		t.Fatal("did not expect hole")
+	}
+	if gotLast != 104 {
+		t.Fatalf("gotLast=%d want 104", gotLast)
+	}
+	if len(applied) != 3 {
+		t.Fatalf("applied=%v", applied)
 	}
 }
