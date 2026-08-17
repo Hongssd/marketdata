@@ -1,6 +1,7 @@
 package marketdata
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -273,6 +274,74 @@ func TestBinanceDepthCacheNeedsRestart(t *testing.T) {
 	}
 }
 
+func TestBinanceDepthWaitStallCount(t *testing.T) {
+	tests := []struct {
+		name       string
+		prevLen    int
+		curLen     int
+		prevMaxU   int64
+		curMaxU    int64
+		stallCount int
+		want       int
+	}{
+		{name: "first sample resets", prevLen: -1, curLen: 95, prevMaxU: 0, curMaxU: 100, stallCount: 0, want: 0},
+		{name: "frozen cache increments", prevLen: 95, curLen: 95, prevMaxU: 11288324596693, curMaxU: 11288324596693, stallCount: 3, want: 4},
+		{name: "len growth resets", prevLen: 95, curLen: 96, prevMaxU: 100, curMaxU: 100, stallCount: 10, want: 0},
+		{name: "maxU growth resets", prevLen: 95, curLen: 95, prevMaxU: 100, curMaxU: 101, stallCount: 10, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := binanceDepthWaitStallCount(tt.prevLen, tt.curLen, tt.prevMaxU, tt.curMaxU, tt.stallCount)
+			if got != tt.want {
+				t.Fatalf("got %d want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDecideBinanceDepthSameSnapshotWait(t *testing.T) {
+	const stallLimit = 40
+	const timeoutWait = 200
+	tests := []struct {
+		name       string
+		waitCount  int
+		stallCount int
+		maxWait    int
+		want       binanceDepthSameSnapshotWaitDecision
+	}{
+		{name: "keep waiting early", waitCount: 1, stallCount: 1, maxWait: timeoutWait, want: binanceDepthKeepWaiting},
+		{name: "stall limit frozen cache", waitCount: 40, stallCount: 40, maxWait: timeoutWait, want: binanceDepthResubKeepSnapshot},
+		{name: "timeout even if progressing", waitCount: 200, stallCount: 0, maxWait: timeoutWait, want: binanceDepthAbandonWaitTimeout},
+		{name: "stall wins over timeout", waitCount: 200, stallCount: 40, maxWait: timeoutWait, want: binanceDepthResubKeepSnapshot},
+		{name: "just below stall", waitCount: 39, stallCount: 39, maxWait: timeoutWait, want: binanceDepthKeepWaiting},
+		{name: "just below timeout", waitCount: 199, stallCount: 0, maxWait: timeoutWait, want: binanceDepthKeepWaiting},
+		{name: "production maxWait 0 never times out", waitCount: 200, stallCount: 0, maxWait: 0, want: binanceDepthKeepWaiting},
+		{name: "production stall still resub", waitCount: 40, stallCount: 40, maxWait: 0, want: binanceDepthResubKeepSnapshot},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := decideBinanceDepthSameSnapshotWait(tt.waitCount, tt.stallCount, tt.maxWait, stallLimit)
+			if got != tt.want {
+				t.Fatalf("got %d want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDecideBinanceDepthSameSnapshotWait_ProductionFrozenCacheBehind(t *testing.T) {
+	// 生产 BTCUSDT: cacheLen/maxLowerU 冻住，waitCount 到百万。2s 冻结即应放弃同快照空等。
+	stall := 0
+	const frozenLen = 95
+	const frozenMaxU int64 = 11288324596693
+	for i := 0; i < binanceDepthSameSnapshotStallLimit; i++ {
+		stall = binanceDepthWaitStallCount(frozenLen, frozenLen, frozenMaxU, frozenMaxU, stall)
+	}
+	got := decideBinanceDepthSameSnapshotWait(binanceDepthSameSnapshotStallLimit, stall, binanceDepthSameSnapshotMaxWait, binanceDepthSameSnapshotStallLimit)
+	if got != binanceDepthResubKeepSnapshot {
+		t.Fatalf("frozen cache_behind got %d want resub keep snapshot", got)
+	}
+}
+
 func TestBinanceDepthEventFollows_Future(t *testing.T) {
 	last := int64(100)
 	if got := binanceDepthEventFollows(BINANCE_FUTURE, last, mybinanceapi.WsDepth{UpperU: 90, LowerU: 99, PreU: 89}); got != binanceDepthFollowSkip {
@@ -338,5 +407,237 @@ func TestApplyBinanceDepthCacheContiguous_FutureOk(t *testing.T) {
 	}
 	if len(applied) != 3 {
 		t.Fatalf("applied=%v", applied)
+	}
+}
+
+func newTestBinanceOrderBookBase() *binanceOrderBookBase {
+	return &binanceOrderBookBase{
+		BinanceWsClientBase: BinanceWsClientBase{
+			WsClientListMap: GetPointer(NewMySyncMap[*mybinanceapi.WsStreamClient, *int64]()),
+		},
+		OrderBookCacheMap:         GetPointer(NewMySyncMap[string, *MySyncMap[int64, *mybinanceapi.WsDepth]]()),
+		OrderBookReadyUpdateIdMap: GetPointer(NewMySyncMap[string, int64]()),
+		OrderBookLastUpdateIdMap:  GetPointer(NewMySyncMap[string, int64]()),
+		WsClientMap:               GetPointer(NewMySyncMap[string, *mybinanceapi.WsStreamClient]()),
+		SubMap:                    GetPointer(NewMySyncMap[string, *mybinanceapi.Subscription[mybinanceapi.WsDepth]]()),
+		depthResubInFlight:        GetPointer(NewMySyncMap[string, bool]()),
+		depthResubAttempt:         GetPointer(NewMySyncMap[string, int]()),
+	}
+}
+
+func TestBinanceDepthResubBackoffAfterAttempt(t *testing.T) {
+	tests := []struct {
+		attempt int
+		want    time.Duration
+	}{
+		{attempt: 0, want: 0},
+		{attempt: 1, want: 0},
+		{attempt: 2, want: 2 * time.Second},
+		{attempt: 3, want: 4 * time.Second},
+		{attempt: 4, want: 8 * time.Second},
+		{attempt: 20, want: 60 * time.Second},
+	}
+	for _, tt := range tests {
+		got := binanceDepthResubBackoffAfterAttempt(tt.attempt)
+		if got != tt.want {
+			t.Fatalf("attempt=%d got %s want %s", tt.attempt, got, tt.want)
+		}
+	}
+}
+
+func TestBinanceDepthWsClientStillUsed(t *testing.T) {
+	shared := &mybinanceapi.WsStreamClient{}
+	other := &mybinanceapi.WsStreamClient{}
+	clients := GetPointer(NewMySyncMap[string, *mybinanceapi.WsStreamClient]())
+	clients.Store("BTCUSDT", shared)
+	clients.Store("ETHUSDT", shared)
+	clients.Store("SOLUSDT", other)
+
+	if !binanceDepthWsClientStillUsed(clients, shared, binanceDepthSymbolSet([]string{"BTCUSDT"})) {
+		t.Fatal("ETHUSDT still on shared client")
+	}
+	if binanceDepthWsClientStillUsed(clients, shared, binanceDepthSymbolSet([]string{"BTCUSDT", "ETHUSDT"})) {
+		t.Fatal("excluded all symbols on shared client")
+	}
+	if binanceDepthWsClientStillUsed(clients, shared, nil) == false {
+		t.Fatal("nil exclude should see BTC/ETH")
+	}
+	if binanceDepthWsClientStillUsed(nil, shared, nil) {
+		t.Fatal("nil map")
+	}
+	if binanceDepthWsClientStillUsed(clients, nil, nil) {
+		t.Fatal("nil client")
+	}
+	if binanceDepthWsClientStillUsed(clients, &mybinanceapi.WsStreamClient{}, nil) {
+		t.Fatal("unknown client")
+	}
+}
+
+func TestUnsubscribeBinanceDepthSubWithTimeout(t *testing.T) {
+	if err := unsubscribeBinanceDepthSubWithTimeout(nil, time.Second); err != nil {
+		t.Fatalf("nil unsub: %v", err)
+	}
+	if err := unsubscribeBinanceDepthSubWithTimeout(func() error { return nil }, time.Second); err != nil {
+		t.Fatalf("ok unsub: %v", err)
+	}
+	want := errors.New("unsub fail")
+	if err := unsubscribeBinanceDepthSubWithTimeout(func() error { return want }, time.Second); !errors.Is(err, want) {
+		t.Fatalf("got %v want %v", err, want)
+	}
+
+	release := make(chan struct{})
+	err := unsubscribeBinanceDepthSubWithTimeout(func() error {
+		<-release
+		return nil
+	}, 20*time.Millisecond)
+	if !errors.Is(err, errBinanceDepthUnsubscribeTimeout) {
+		t.Fatalf("got %v want timeout", err)
+	}
+	close(release)
+}
+
+func TestClaimDepthResubSymbols_InFlightAndBackoff(t *testing.T) {
+	b := newTestBinanceOrderBookBase()
+	pending, backoff := b.claimDepthResubSymbols([]string{"BTCUSDT", "ETHUSDT"})
+	if len(pending) != 2 {
+		t.Fatalf("pending=%v", pending)
+	}
+	if backoff != 0 {
+		t.Fatalf("first claim backoff=%s want 0", backoff)
+	}
+	pending2, _ := b.claimDepthResubSymbols([]string{"BTCUSDT", "ETHUSDT"})
+	if len(pending2) != 0 {
+		t.Fatalf("in-flight should skip, got %v", pending2)
+	}
+
+	b.releaseDepthResubInFlight([]string{"BTCUSDT"})
+	pending3, backoff3 := b.claimDepthResubSymbols([]string{"BTCUSDT", "ETHUSDT"})
+	if len(pending3) != 1 || pending3[0] != "BTCUSDT" {
+		t.Fatalf("pending3=%v", pending3)
+	}
+	if backoff3 != 2*time.Second {
+		t.Fatalf("second claim backoff=%s want 2s", backoff3)
+	}
+	if attempt, _ := b.depthResubAttempt.Load("BTCUSDT"); attempt != 2 {
+		t.Fatalf("BTCUSDT attempt=%d want 2", attempt)
+	}
+	if attempt, _ := b.depthResubAttempt.Load("ETHUSDT"); attempt != 1 {
+		t.Fatalf("ETHUSDT attempt=%d want 1", attempt)
+	}
+}
+
+func TestSymbolsOnSameDepthSub(t *testing.T) {
+	b := newTestBinanceOrderBookBase()
+	shared := &mybinanceapi.Subscription[mybinanceapi.WsDepth]{}
+	alone := &mybinanceapi.Subscription[mybinanceapi.WsDepth]{}
+	b.SubMap.Store("BTCUSDT", shared)
+	b.SubMap.Store("ETHUSDT", shared)
+	b.SubMap.Store("SOLUSDT", alone)
+
+	got := b.symbolsOnSameDepthSub("BTCUSDT")
+	if len(got) != 2 {
+		t.Fatalf("shared got=%v", got)
+	}
+	seen := map[string]bool{}
+	for _, s := range got {
+		seen[s] = true
+	}
+	if !seen["BTCUSDT"] || !seen["ETHUSDT"] {
+		t.Fatalf("shared got=%v", got)
+	}
+	if only := b.symbolsOnSameDepthSub("SOLUSDT"); len(only) != 1 || only[0] != "SOLUSDT" {
+		t.Fatalf("alone got=%v", only)
+	}
+	if missing := b.symbolsOnSameDepthSub("XRPUSDT"); len(missing) != 1 || missing[0] != "XRPUSDT" {
+		t.Fatalf("missing got=%v", missing)
+	}
+}
+
+func TestBinanceDepthSubStillActive(t *testing.T) {
+	b := newTestBinanceOrderBookBase()
+	oldSub := &mybinanceapi.Subscription[mybinanceapi.WsDepth]{}
+	newSub := &mybinanceapi.Subscription[mybinanceapi.WsDepth]{}
+	b.SubMap.Store("BTCUSDT", oldSub)
+	if !b.binanceDepthSubStillActive(oldSub, []string{"BTCUSDT"}) {
+		t.Fatal("active sub should resub")
+	}
+	b.SubMap.Store("BTCUSDT", newSub)
+	if b.binanceDepthSubStillActive(oldSub, []string{"BTCUSDT"}) {
+		t.Fatal("replaced sub should skip")
+	}
+	b.SubMap.Delete("BTCUSDT")
+	if b.binanceDepthSubStillActive(newSub, []string{"BTCUSDT"}) {
+		t.Fatal("detached sub should skip")
+	}
+}
+
+func TestInvalidateBinanceDepthReadyKeepSnapshot(t *testing.T) {
+	b := newTestBinanceOrderBookBase()
+	b.OrderBookReadyUpdateIdMap.Store("BTCUSDT", int64(1))
+	b.OrderBookLastUpdateIdMap.Store("BTCUSDT", int64(99))
+	cache := NewMySyncMap[int64, *mybinanceapi.WsDepth]()
+	cache.Store(1, &mybinanceapi.WsDepth{LowerU: 1})
+	b.OrderBookCacheMap.Store("BTCUSDT", &cache)
+
+	b.invalidateBinanceDepthReadyKeepSnapshot("BTCUSDT")
+	if _, ok := b.OrderBookReadyUpdateIdMap.Load("BTCUSDT"); ok {
+		t.Fatal("ready should be cleared")
+	}
+	if _, ok := b.OrderBookCacheMap.Load("BTCUSDT"); ok {
+		t.Fatal("cache should be cleared")
+	}
+	if id, ok := b.OrderBookLastUpdateIdMap.Load("BTCUSDT"); !ok || id != 99 {
+		t.Fatalf("lastUpdateId=%d ok=%v want 99", id, ok)
+	}
+}
+
+func TestDetachBinanceDepthSymbols_KeepsSibling(t *testing.T) {
+	b := newTestBinanceOrderBookBase()
+	client := &mybinanceapi.WsStreamClient{}
+	count := int64(2)
+	b.WsClientListMap.Store(client, &count)
+	b.WsClientMap.Store("BTCUSDT", client)
+	b.WsClientMap.Store("ETHUSDT", client)
+	b.SubMap.Store("BTCUSDT", &mybinanceapi.Subscription[mybinanceapi.WsDepth]{})
+	b.SubMap.Store("ETHUSDT", &mybinanceapi.Subscription[mybinanceapi.WsDepth]{})
+
+	got := b.detachBinanceDepthSymbols([]string{"BTCUSDT"})
+	if len(got) != 1 || got[0] != client {
+		t.Fatalf("clients=%v", got)
+	}
+	if _, ok := b.WsClientMap.Load("BTCUSDT"); ok {
+		t.Fatal("BTCUSDT should be detached")
+	}
+	if c, ok := b.WsClientMap.Load("ETHUSDT"); !ok || c != client {
+		t.Fatal("ETHUSDT should remain")
+	}
+	if _, ok := b.SubMap.Load("BTCUSDT"); ok {
+		t.Fatal("BTCUSDT sub should be detached")
+	}
+	if count != 1 {
+		t.Fatalf("count=%d want 1", count)
+	}
+}
+
+func TestSaveBinanceDepthCache_StoresCopy(t *testing.T) {
+	b := newTestBinanceOrderBookBase()
+	result := mybinanceapi.WsDepth{Symbol: "BTCUSDT", LowerU: 10, UpperU: 9}
+	b.saveBinanceDepthCache(result)
+	result.LowerU = 99
+	cache, ok := b.OrderBookCacheMap.Load("BTCUSDT")
+	if !ok {
+		t.Fatal("missing cache")
+	}
+	got, ok := cache.Load(int64(10))
+	if !ok || got == nil || got.LowerU != 10 || got.UpperU != 9 {
+		t.Fatalf("stored=%v ok=%v", got, ok)
+	}
+}
+
+func TestDecideBinanceDepthSameSnapshotWait_GrowingCacheNoRest(t *testing.T) {
+	// 生产 maxWait=0：缓存仍在增长时即使 waitCount 很大也不放弃同快照。
+	got := decideBinanceDepthSameSnapshotWait(1_000_000, 0, binanceDepthSameSnapshotMaxWait, binanceDepthSameSnapshotStallLimit)
+	if got != binanceDepthKeepWaiting {
+		t.Fatalf("got %d want keep waiting", got)
 	}
 }
