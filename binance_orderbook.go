@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,6 +18,7 @@ type BinanceOrderBook struct {
 	SpotOrderBook   *binanceOrderBookBase
 	FutureOrderBook *binanceOrderBookBase
 	SwapOrderBook   *binanceOrderBookBase
+	restQuotaCron   *cron.Cron
 }
 
 type binanceOrderBookBase struct {
@@ -42,7 +44,10 @@ type binanceOrderBookBase struct {
 	depthSubZeroCopy          *MySyncMap[string, bool]                                             //symbol->zeroCopy
 	depthResubInFlight        *MySyncMap[string, bool]                                             //symbol->resub in flight
 	depthResubAttempt         *MySyncMap[string, int]                                              //symbol->resub attempt, 仅 Ready 后清零
+	depthInitEpoch            *MySyncMap[string, int64]                                            //symbol->init generation，bump 后旧 init 退出
+	depthLastRestartMilli     *MySyncMap[string, int64]                                            //symbol->最近一次决定重启的时间
 	depthResubMu              sync.Mutex
+	depthRestartMu            sync.Mutex
 	closed                    atomic.Bool
 }
 
@@ -92,8 +97,18 @@ func (b *BinanceOrderBook) newBinanceOrderBookBase(config BinanceOrderBookConfig
 		depthSubZeroCopy:          GetPointer(NewMySyncMap[string, bool]()),
 		depthResubInFlight:        GetPointer(NewMySyncMap[string, bool]()),
 		depthResubAttempt:         GetPointer(NewMySyncMap[string, int]()),
+		depthInitEpoch:            GetPointer(NewMySyncMap[string, int64]()),
+		depthLastRestartMilli:     GetPointer(NewMySyncMap[string, int64]()),
 	}
 
+}
+
+// binanceDepthInitLimit REST 快照档位。未配置或非法时默认 100（U 本位 /fapi/v1/depth limit=100 权重 5）。
+func binanceDepthInitLimit(initOrderBookSize int) int {
+	if initOrderBookSize > 0 {
+		return initOrderBookSize
+	}
+	return 100
 }
 
 // 初始化
@@ -109,6 +124,7 @@ func (b *BinanceOrderBook) init() {
 		log.Error(err)
 		return
 	}
+	b.restQuotaCron = c
 	c.Start()
 }
 
@@ -387,10 +403,11 @@ func (b *binanceOrderBookBase) initBinanceDepthFunc(symbol string) error {
 
 	aheadAttempt := 0
 	restFailAttempt := 0
+	epoch := b.currentDepthInitEpoch(symbol)
 
 snapshotLoop:
 	for {
-		if b.closed.Load() {
+		if b.depthInitAborted(symbol, epoch) {
 			return nil
 		}
 		if b.depthCacheLen(symbol) >= binanceDepthCacheMaxEvents {
@@ -402,13 +419,16 @@ snapshotLoop:
 		// 官方第 2 步：尽量先等到至少一包增量，再拉快照（低活跃盘口超时后仍拉 REST）。
 		if b.depthCacheLen(symbol) == 0 {
 			if _, hasSnapshot := b.OrderBookLastUpdateIdMap.Load(symbol); !hasSnapshot {
-				b.waitForFirstDepthCacheEvent(symbol, binanceDepthWaitFirstEvent)
+				b.waitForFirstDepthCacheEvent(symbol, epoch, binanceDepthWaitFirstEvent)
 			}
 		}
 
 		if _, hasSnapshot := b.OrderBookLastUpdateIdMap.Load(symbol); !hasSnapshot {
-			err := b.initBinanceDepthOrderBook(symbol)
+			err := b.initBinanceDepthOrderBook(symbol, epoch)
 			if err != nil {
+				if errors.Is(err, errBinanceDepthInitAborted) {
+					return nil
+				}
 				restFailAttempt++
 				backoff := binanceDepthBackoffDuration(restFailAttempt-1, time.Second, 5*time.Second)
 				log.Infof("重新初始化币安深度: %s err=%v backoff=%s", symbol, err, backoff)
@@ -423,7 +443,7 @@ snapshotLoop:
 		prevCacheLen := -1
 		prevMaxLowerU := int64(0)
 		for {
-			if b.closed.Load() {
+			if b.depthInitAborted(symbol, epoch) {
 				return nil
 			}
 			err := b.saveBinanceDepthOrderBookFromCache(symbol)
@@ -467,9 +487,8 @@ snapshotLoop:
 						bridgeErr.MinUpperU, bridgeErr.MaxLowerU, waitCount, stallCount)
 					b.invalidateBinanceDepthReadyKeepSnapshot(symbol)
 					b.restartBinanceDepthStream(symbol)
-					stallCount = 0
-					prevCacheLen = -1
-					waitCount = 0
+					// 必须退出以释放 IsInitActionMu，否则重订后的新 init 会 TryLock 失败而无人桥接。
+					return nil
 				}
 				time.Sleep(binanceDepthSameSnapshotPoll)
 			case binanceDepthMissRefetchKeepCache:
@@ -506,8 +525,10 @@ func (b *binanceOrderBookBase) checkBinanceDepthIsReady(Symbol string) (int64, e
 }
 
 // 初始化深度
-func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
-	b.acquireBinanceDepthRestQuota()
+func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string, epoch int64) error {
+	if !b.acquireBinanceDepthRestQuota(Symbol, epoch) {
+		return errBinanceDepthInitAborted
+	}
 	orderBook, ok := b.OrderBookRBTreeMap.Load(Symbol)
 	if !ok {
 		orderBook = NewOrderBook()
@@ -516,7 +537,7 @@ func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
 	switch b.AccountType {
 	case BINANCE_SPOT:
 		//重新初始化
-		depth, err := binance.NewSpotRestClient("", "").NewSpotDepth().Symbol(Symbol).Limit(b.initOrderBookSize).Do()
+		depth, err := binance.NewSpotRestClient("", "").NewSpotDepth().Symbol(Symbol).Limit(binanceDepthInitLimit(b.initOrderBookSize)).Do()
 		if err != nil {
 			log.Error(err)
 			return err
@@ -550,8 +571,8 @@ func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
 		orderBook.PutAskLevels(askPrices, askQuantities)
 		b.OrderBookLastUpdateIdMap.Store(Symbol, depth.LastUpdateId)
 	case BINANCE_FUTURE:
-		//重新初始化（官方文档推荐 limit=1000）
-		depth, err := binance.NewFutureRestClient("", "").NewFutureDepth().Symbol(Symbol).Limit(1000).Do()
+		//重新初始化（档位由 InitOrderBookSize 决定；100 档权重 5，1000 档权重 20）
+		depth, err := binance.NewFutureRestClient("", "").NewFutureDepth().Symbol(Symbol).Limit(binanceDepthInitLimit(b.initOrderBookSize)).Do()
 		if err != nil {
 			log.Error(err)
 			return err
@@ -586,8 +607,8 @@ func (b *binanceOrderBookBase) initBinanceDepthOrderBook(Symbol string) error {
 		orderBook.PutAskLevels(askPrices, askQuantities)
 		b.OrderBookLastUpdateIdMap.Store(Symbol, depth.LastUpdateId)
 	case BINANCE_SWAP:
-		//重新初始化（与 U 本位一致，使用更深快照便于本地维护）
-		depth, err := binance.NewSwapRestClient("", "").NewSwapDepth().Symbol(Symbol).Limit(1000).Do()
+		//重新初始化（档位由 InitOrderBookSize 决定，与 U 本位一致）
+		depth, err := binance.NewSwapRestClient("", "").NewSwapDepth().Symbol(Symbol).Limit(binanceDepthInitLimit(b.initOrderBookSize)).Do()
 		if err != nil {
 			log.Error(err)
 			return err
@@ -870,9 +891,12 @@ const (
 	binanceDepthUnsubscribeTimeout     = 2 * time.Second
 	binanceDepthResubBackoffMin        = 2 * time.Second
 	binanceDepthResubBackoffMax        = 60 * time.Second
+	binanceDepthRestartDebounce        = 3 * time.Second
+	binanceDepthInitIdleWait           = 15 * time.Second
 )
 
 var errBinanceDepthUnsubscribeTimeout = errors.New("binance depth unsubscribe timeout")
+var errBinanceDepthInitAborted = errors.New("binance depth init aborted")
 
 type binanceDepthMissAction int
 
@@ -950,6 +974,50 @@ func binanceDepthResubBackoffAfterAttempt(attempt int) time.Duration {
 		return 0
 	}
 	return binanceDepthBackoffDuration(attempt-2, binanceDepthResubBackoffMin, binanceDepthResubBackoffMax)
+}
+
+func binanceDepthAnyResubInFlight(inFlight *MySyncMap[string, bool], symbols []string) bool {
+	if inFlight == nil {
+		return false
+	}
+	for _, s := range symbols {
+		if s == "" {
+			continue
+		}
+		if _, ok := inFlight.Load(s); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func binanceDepthGroupRecentlyRestarted(last *MySyncMap[string, int64], symbols []string, nowMilli int64, window time.Duration) bool {
+	if last == nil || window <= 0 {
+		return false
+	}
+	lim := window.Milliseconds()
+	for _, s := range symbols {
+		if s == "" {
+			continue
+		}
+		t, ok := last.Load(s)
+		if ok && nowMilli-t < lim {
+			return true
+		}
+	}
+	return false
+}
+
+func stampBinanceDepthGroupRestarted(last *MySyncMap[string, int64], symbols []string, nowMilli int64) {
+	if last == nil {
+		return
+	}
+	for _, s := range symbols {
+		if s == "" {
+			continue
+		}
+		last.Store(s, nowMilli)
+	}
 }
 
 func binanceDepthSymbolSet(symbols []string) map[string]struct{} {
@@ -1067,12 +1135,15 @@ func applyBinanceDepthCacheContiguous(
 	return current, false, nil
 }
 
-func (b *binanceOrderBookBase) acquireBinanceDepthRestQuota() {
+func (b *binanceOrderBookBase) acquireBinanceDepthRestQuota(symbol string, epoch int64) bool {
 	if b.limitRestCountPerMinute <= 0 {
-		return
+		return !b.depthInitAborted(symbol, epoch)
 	}
 	logged := false
 	for {
+		if b.depthInitAborted(symbol, epoch) {
+			return false
+		}
 		cur := atomic.LoadInt64(&b.currentRestCount)
 		if cur >= b.limitRestCountPerMinute {
 			if !logged {
@@ -1083,7 +1154,7 @@ func (b *binanceOrderBookBase) acquireBinanceDepthRestQuota() {
 			continue
 		}
 		if atomic.CompareAndSwapInt64(&b.currentRestCount, cur, cur+1) {
-			return
+			return true
 		}
 	}
 }
@@ -1096,10 +1167,10 @@ func (b *binanceOrderBookBase) depthCacheLen(symbol string) int {
 	return cacheMap.Length()
 }
 
-func (b *binanceOrderBookBase) waitForFirstDepthCacheEvent(symbol string, timeout time.Duration) bool {
+func (b *binanceOrderBookBase) waitForFirstDepthCacheEvent(symbol string, epoch int64, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for {
-		if b.closed.Load() {
+		if b.depthInitAborted(symbol, epoch) {
 			return false
 		}
 		if b.depthCacheLen(symbol) > 0 {
@@ -1291,23 +1362,139 @@ func (b *BinanceOrderBook) SubscribeOrderBooksWithCallBackAndZeroCopy(accountTyp
 	return nil
 }
 
+// ReSubscribeOrderBook 强制退订并重订指定 symbol 的增量盘口（含同 multiplex 连接上的 sibling）。
+// 会中止该 symbol 上卡住的 initBinanceDepthFunc，清空本地快照后重新缓冲并拉 REST。
+// 同一 OrderBook 账户类型上串行执行；组内已在重启/刚重启过则直接返回，避免并行 bump epoch 把新 init 掐死。
+func (b *BinanceOrderBook) ReSubscribeOrderBook(accountType BinanceAccountType, symbol string) error {
+	if b == nil {
+		return fmt.Errorf("binance orderbook not initialized")
+	}
+	base, err := b.getBaseMapFromAccountType(accountType)
+	if err != nil {
+		return err
+	}
+	if base == nil {
+		return fmt.Errorf("binance orderbook not initialized")
+	}
+	symbol = strings.TrimSpace(symbol)
+	if symbol == "" {
+		return fmt.Errorf("empty symbol")
+	}
+	if base.closed.Load() {
+		return fmt.Errorf("binance orderbook closed")
+	}
+	log.Warnf("币安深度手动重订阅 accountType=%s symbol=%s", accountType, symbol)
+	base.restartBinanceDepthStreamLocked(symbol, true)
+	return nil
+}
+
+func (b *binanceOrderBookBase) currentDepthInitEpoch(symbol string) int64 {
+	if b == nil || b.depthInitEpoch == nil {
+		return 0
+	}
+	v, _ := b.depthInitEpoch.Load(symbol)
+	return v
+}
+
+func (b *binanceOrderBookBase) bumpDepthInitEpoch(symbols []string) {
+	if b == nil || b.depthInitEpoch == nil {
+		return
+	}
+	for _, symbol := range symbols {
+		if symbol == "" {
+			continue
+		}
+		v, _ := b.depthInitEpoch.Load(symbol)
+		b.depthInitEpoch.Store(symbol, v+1)
+	}
+}
+
+func (b *binanceOrderBookBase) depthInitAborted(symbol string, epoch int64) bool {
+	if b == nil {
+		return true
+	}
+	if b.closed.Load() {
+		return true
+	}
+	return b.currentDepthInitEpoch(symbol) != epoch
+}
+
+func (b *binanceOrderBookBase) waitDepthInitIdle(symbols []string) {
+	b.waitDepthInitIdleFor(symbols, binanceDepthInitIdleWait)
+}
+
+func (b *binanceOrderBookBase) waitDepthInitIdleFor(symbols []string, perSymbol time.Duration) {
+	if b == nil || perSymbol <= 0 {
+		return
+	}
+	for _, symbol := range symbols {
+		if symbol == "" || b.IsInitActionMu == nil {
+			continue
+		}
+		mu, ok := b.IsInitActionMu.Load(symbol)
+		if !ok || mu == nil {
+			continue
+		}
+		deadline := time.Now().Add(perSymbol)
+		for {
+			if mu.TryLock() {
+				mu.Unlock()
+				break
+			}
+			if !time.Now().Before(deadline) {
+				log.Warnf("币安深度等待 init 锁超时 symbol=%s", symbol)
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+}
+
 func (b *binanceOrderBookBase) restartBinanceDepthStream(symbol string) {
+	go b.restartBinanceDepthStreamLocked(symbol, false)
+}
+
+func (b *binanceOrderBookBase) restartBinanceDepthStreamLocked(symbol string, clearCache bool) {
+	if b == nil {
+		return
+	}
+	b.depthRestartMu.Lock()
+	defer b.depthRestartMu.Unlock()
 	if b.closed.Load() {
 		return
 	}
-	if b.depthResubInFlight != nil {
-		if _, flying := b.depthResubInFlight.Load(symbol); flying {
-			return
-		}
+	if b.WsClientMap == nil || b.CallBackMap == nil {
+		return
 	}
 	symbols := b.symbolsOnSameDepthSub(symbol)
+	if binanceDepthAnyResubInFlight(b.depthResubInFlight, symbols) {
+		return
+	}
+	nowMilli := time.Now().UnixMilli()
+	if binanceDepthGroupRecentlyRestarted(b.depthLastRestartMilli, symbols, nowMilli, binanceDepthRestartDebounce) {
+		return
+	}
+	stampBinanceDepthGroupRestarted(b.depthLastRestartMilli, symbols, nowMilli)
+	b.bumpDepthInitEpoch(symbols)
 	client, _ := b.WsClientMap.Load(symbol)
 	callback, _ := b.CallBackMap.Load(symbol)
-	zeroCopy, _ := b.depthSubZeroCopy.Load(symbol)
-	for _, s := range symbols {
-		b.invalidateBinanceDepthReadyKeepSnapshot(s)
+	var zeroCopy bool
+	if b.depthSubZeroCopy != nil {
+		zeroCopy, _ = b.depthSubZeroCopy.Load(symbol)
 	}
-	go b.resubscribeBinanceDepthAfterClose(client, symbols, callback, zeroCopy)
+	for _, s := range symbols {
+		if clearCache {
+			b.resetBinanceDepthLocalState(s, true)
+		} else {
+			b.invalidateBinanceDepthReadyKeepSnapshot(s)
+		}
+	}
+	b.waitDepthInitIdle(symbols)
+	if b.closed.Load() {
+		return
+	}
+	b.resubscribeBinanceDepthAfterClose(client, symbols, callback, zeroCopy)
+	stampBinanceDepthGroupRestarted(b.depthLastRestartMilli, symbols, time.Now().UnixMilli())
 }
 
 func (b *binanceOrderBookBase) binanceDepthSubStillActive(sub *mybinanceapi.Subscription[mybinanceapi.WsDepth], symbols []string) bool {
@@ -1506,7 +1693,12 @@ func (b *binanceOrderBookBase) resubscribeBinanceDepthAfterClose(
 }
 
 func (b *binanceOrderBookBase) Close() {
+	if b == nil {
+		return
+	}
 	b.closed.Store(true)
+	b.depthRestartMu.Lock()
+	defer b.depthRestartMu.Unlock()
 	b.BinanceWsClientBase.close()
 
 	b.OrderBookCacheMap.Clear()
@@ -1525,9 +1717,22 @@ func (b *binanceOrderBookBase) Close() {
 	if b.depthResubAttempt != nil {
 		b.depthResubAttempt.Clear()
 	}
+	if b.depthInitEpoch != nil {
+		b.depthInitEpoch.Clear()
+	}
+	if b.depthLastRestartMilli != nil {
+		b.depthLastRestartMilli.Clear()
+	}
 }
 
 func (b *BinanceOrderBook) Close() {
+	if b == nil {
+		return
+	}
+	if b.restQuotaCron != nil {
+		b.restQuotaCron.Stop()
+		b.restQuotaCron = nil
+	}
 	b.SpotOrderBook.Close()
 	b.FutureOrderBook.Close()
 	b.SwapOrderBook.Close()

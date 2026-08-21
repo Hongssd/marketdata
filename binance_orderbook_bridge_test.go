@@ -2,6 +2,7 @@ package marketdata
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -634,10 +635,187 @@ func TestSaveBinanceDepthCache_StoresCopy(t *testing.T) {
 	}
 }
 
+func TestBinanceDepthInitLimit(t *testing.T) {
+	tests := []struct {
+		name string
+		size int
+		want int
+	}{
+		{name: "zero defaults to 100", size: 0, want: 100},
+		{name: "negative defaults to 100", size: -1, want: 100},
+		{name: "explicit 100", size: 100, want: 100},
+		{name: "explicit 1000 still honored", size: 1000, want: 1000},
+		{name: "explicit 50", size: 50, want: 50},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := binanceDepthInitLimit(tt.size); got != tt.want {
+				t.Fatalf("got %d want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDecideBinanceDepthSameSnapshotWait_GrowingCacheNoRest(t *testing.T) {
 	// 生产 maxWait=0：缓存仍在增长时即使 waitCount 很大也不放弃同快照。
 	got := decideBinanceDepthSameSnapshotWait(1_000_000, 0, binanceDepthSameSnapshotMaxWait, binanceDepthSameSnapshotStallLimit)
 	if got != binanceDepthKeepWaiting {
 		t.Fatalf("got %d want keep waiting", got)
+	}
+}
+
+func TestDepthInitAborted(t *testing.T) {
+	b := &binanceOrderBookBase{
+		depthInitEpoch: GetPointer(NewMySyncMap[string, int64]()),
+	}
+	if b.depthInitAborted("BTCUSDT", 0) {
+		t.Fatal("epoch 0 should not abort")
+	}
+	b.bumpDepthInitEpoch([]string{"BTCUSDT", ""})
+	if !b.depthInitAborted("BTCUSDT", 0) {
+		t.Fatal("bumped epoch should abort old init")
+	}
+	if b.depthInitAborted("BTCUSDT", 1) {
+		t.Fatal("current epoch should not abort")
+	}
+	b.closed.Store(true)
+	if !b.depthInitAborted("BTCUSDT", 1) {
+		t.Fatal("closed should abort")
+	}
+	empty := &binanceOrderBookBase{}
+	if empty.depthInitAborted("BTCUSDT", 0) {
+		t.Fatal("nil epoch map with closed=false should not abort epoch 0")
+	}
+}
+
+func TestNilOrderBookDepthInitAborted(t *testing.T) {
+	var b *binanceOrderBookBase
+	if !b.depthInitAborted("BTCUSDT", 0) {
+		t.Fatal("nil base should abort")
+	}
+}
+
+func TestReSubscribeOrderBook_RejectsEmptyAndBadAccount(t *testing.T) {
+	ob := &BinanceOrderBook{}
+	ob.FutureOrderBook = ob.newBinanceOrderBookBase(BinanceOrderBookConfigBase{})
+	ob.FutureOrderBook.AccountType = BINANCE_FUTURE
+	if err := ob.ReSubscribeOrderBook(BINANCE_FUTURE, "  "); err == nil {
+		t.Fatal("expected empty symbol error")
+	}
+	if err := ob.ReSubscribeOrderBook("UNKNOWN", "BTCUSDT"); err == nil {
+		t.Fatal("expected account type error")
+	}
+	ob.FutureOrderBook.closed.Store(true)
+	if err := ob.ReSubscribeOrderBook(BINANCE_FUTURE, "BTCUSDT"); err == nil {
+		t.Fatal("expected closed error")
+	}
+}
+
+func TestWaitDepthInitIdle_NoMutexNoPanic(t *testing.T) {
+	b := &binanceOrderBookBase{
+		IsInitActionMu: GetPointer(NewMySyncMap[string, *sync.Mutex]()),
+	}
+	b.waitDepthInitIdle([]string{"BTCUSDT", ""})
+	mu := &sync.Mutex{}
+	b.IsInitActionMu.Store("ETHUSDT", mu)
+	b.waitDepthInitIdle([]string{"ETHUSDT"})
+}
+
+func TestWaitDepthInitIdle_PerSymbolTimeout(t *testing.T) {
+	b := &binanceOrderBookBase{
+		IsInitActionMu: GetPointer(NewMySyncMap[string, *sync.Mutex]()),
+	}
+	mu1, mu2 := &sync.Mutex{}, &sync.Mutex{}
+	mu1.Lock()
+	mu2.Lock()
+	b.IsInitActionMu.Store("BTCUSDT", mu1)
+	b.IsInitActionMu.Store("ETHUSDT", mu2)
+	start := time.Now()
+	b.waitDepthInitIdleFor([]string{"BTCUSDT", "ETHUSDT"}, 80*time.Millisecond)
+	elapsed := time.Since(start)
+	mu1.Unlock()
+	mu2.Unlock()
+	if elapsed < 150*time.Millisecond {
+		t.Fatalf("per-symbol timeout too short elapsed=%s", elapsed)
+	}
+	if elapsed > 800*time.Millisecond {
+		t.Fatalf("per-symbol timeout too long elapsed=%s", elapsed)
+	}
+}
+
+func TestOrderBookClose_NilSafe(t *testing.T) {
+	var base *binanceOrderBookBase
+	base.Close()
+	var ob *BinanceOrderBook
+	ob.Close()
+}
+
+func TestBinanceDepthAnyResubInFlight(t *testing.T) {
+	if binanceDepthAnyResubInFlight(nil, []string{"BTCUSDT"}) {
+		t.Fatal("nil map should not be in-flight")
+	}
+	m := GetPointer(NewMySyncMap[string, bool]())
+	m.Store("ETHUSDT", true)
+	if binanceDepthAnyResubInFlight(m, []string{"BTCUSDT"}) {
+		t.Fatal("other symbol in-flight should not match")
+	}
+	if !binanceDepthAnyResubInFlight(m, []string{"BTCUSDT", "ETHUSDT"}) {
+		t.Fatal("sibling in-flight should match")
+	}
+}
+
+func TestBinanceDepthGroupRecentlyRestarted(t *testing.T) {
+	last := GetPointer(NewMySyncMap[string, int64]())
+	now := int64(1_000_000)
+	stampBinanceDepthGroupRestarted(last, []string{"BTCUSDT", "ETHUSDT"}, now)
+	if !binanceDepthGroupRecentlyRestarted(last, []string{"ETHUSDT"}, now+1000, 3*time.Second) {
+		t.Fatal("within debounce window")
+	}
+	if binanceDepthGroupRecentlyRestarted(last, []string{"ETHUSDT"}, now+4000, 3*time.Second) {
+		t.Fatal("debounce elapsed")
+	}
+	if binanceDepthGroupRecentlyRestarted(nil, []string{"ETHUSDT"}, now, 3*time.Second) {
+		t.Fatal("nil map")
+	}
+}
+
+func TestRestartLocked_SkipInFlightNoBump(t *testing.T) {
+	b := &binanceOrderBookBase{
+		SubMap:                GetPointer(NewMySyncMap[string, *mybinanceapi.Subscription[mybinanceapi.WsDepth]]()),
+		depthInitEpoch:        GetPointer(NewMySyncMap[string, int64]()),
+		depthResubInFlight:    GetPointer(NewMySyncMap[string, bool]()),
+		depthLastRestartMilli: GetPointer(NewMySyncMap[string, int64]()),
+	}
+	b.depthInitEpoch.Store("BTCUSDT", 5)
+	b.depthResubInFlight.Store("BTCUSDT", true)
+	b.restartBinanceDepthStreamLocked("BTCUSDT", false)
+	if got := b.currentDepthInitEpoch("BTCUSDT"); got != 5 {
+		t.Fatalf("in-flight restart must not bump epoch, got %d", got)
+	}
+}
+
+func TestRestartLocked_SkipDebounceNoBump(t *testing.T) {
+	b := &binanceOrderBookBase{
+		SubMap:                GetPointer(NewMySyncMap[string, *mybinanceapi.Subscription[mybinanceapi.WsDepth]]()),
+		depthInitEpoch:        GetPointer(NewMySyncMap[string, int64]()),
+		depthResubInFlight:    GetPointer(NewMySyncMap[string, bool]()),
+		depthLastRestartMilli: GetPointer(NewMySyncMap[string, int64]()),
+	}
+	b.depthInitEpoch.Store("BTCUSDT", 5)
+	stampBinanceDepthGroupRestarted(b.depthLastRestartMilli, []string{"BTCUSDT"}, time.Now().UnixMilli())
+	b.restartBinanceDepthStreamLocked("BTCUSDT", false)
+	if got := b.currentDepthInitEpoch("BTCUSDT"); got != 5 {
+		t.Fatalf("debounced restart must not bump epoch, got %d", got)
+	}
+}
+
+func TestReSubscribeOrderBook_NilReceiver(t *testing.T) {
+	var ob *BinanceOrderBook
+	if err := ob.ReSubscribeOrderBook(BINANCE_FUTURE, "BTCUSDT"); err == nil {
+		t.Fatal("expected nil receiver error")
+	}
+	ob = &BinanceOrderBook{}
+	if err := ob.ReSubscribeOrderBook(BINANCE_FUTURE, "BTCUSDT"); err == nil {
+		t.Fatal("expected nil future book error")
 	}
 }
