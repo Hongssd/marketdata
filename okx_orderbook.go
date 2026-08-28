@@ -269,13 +269,17 @@ func (o *OkxOrderBook) subscribeOkxDepthMultipleWithZeroCopy(okxWsClient *myokxa
 				Symbol := result.InstId
 				switch result.Action {
 				case "snapshot":
-					//首次接收到推送全量数据，清除其他数据，并直接初始化
+					// Full book: rebuild local tree, persist OrderBookMap, and
+					// callback so Hub lastRecv / downstream PushDepth recover
+					// immediately after reconnect (do not wait for the first update).
 					o.OrderBookReadyUpdateIdMap.Delete(Symbol)
 					o.OrderBookMap.Delete(Symbol)
 					o.OrderBookLastUpdateIdMap.Delete(Symbol)
 					o.OrderBookRBTreeMap.Delete(Symbol)
 					o.initOkxDepthOrderBook(result)
-					// log.Infof("snapshot: %v", result)
+					// timeoutMilli=0: reconnect snapshots can be older than
+					// CallBackDepthTimeoutMilli; still treat as a live recv.
+					o.emitOkxDepthCallback(Symbol, result.SeqId, result.PrevSeqId, callback, isZeroCopy, 0)
 				case "update":
 					//增量数据更新，需要进行校验
 					_, err := o.checkOkxDepthIsReady(Symbol)
@@ -284,76 +288,23 @@ func (o *OkxOrderBook) subscribeOkxDepthMultipleWithZeroCopy(okxWsClient *myokxa
 						go reSubThis(Symbol)
 						continue
 					}
-					// log.Infof("update: %v", result)
 					err = o.saveOkxDepthOrderBook(result)
 					if err != nil {
 						log.Error(err)
-						//保存增量数据失败，直接重新订阅
 						go reSubThis(Symbol)
 						continue
 					}
-
-					if callback == nil || o.callBackDepthLevel == 0 {
-						continue
-					}
-					if isZeroCopy {
-						//高性能查询盘口并执行回调
-						err = o.ViewDepth(Symbol, int(o.callBackDepthLevel), o.callBackDepthTimeoutMilli, func(d *Depth) error {
-							d.UId = result.SeqId
-							d.PreUId = result.PrevSeqId
-							callback(d, nil)
-							return nil
-						})
-						if err != nil {
-							callback(nil, err)
-							continue
-						}
-					} else {
-						depth, err := o.GetDepth(Symbol, int(o.callBackDepthLevel), o.callBackDepthTimeoutMilli)
-						if err != nil {
-							callback(nil, err)
-							continue
-						}
-						depth.UId = result.SeqId
-						depth.PreUId = result.PrevSeqId
-						callback(depth, nil)
-					}
-
+					o.emitOkxDepthCallback(Symbol, result.SeqId, result.PrevSeqId, callback, isZeroCopy, o.callBackDepthTimeoutMilli)
 				default:
 					//定量深度推送，直接覆盖全部
 					o.initAndClearOkxDepthOrderBook(result)
 					err = o.saveOkxDepthOrderBook(result)
 					if err != nil {
 						log.Error(err)
-						//保存增量数据失败，直接重新订阅
 						go reSubThis(Symbol)
 						continue
 					}
-					if callback == nil || o.callBackDepthLevel == 0 {
-						continue
-					}
-					if isZeroCopy {
-						//高性能查询盘口并执行回调
-						err = o.ViewDepth(Symbol, int(o.callBackDepthLevel), o.callBackDepthTimeoutMilli, func(d *Depth) error {
-							d.UId = result.SeqId
-							d.PreUId = result.PrevSeqId
-							callback(d, nil)
-							return nil
-						})
-						if err != nil {
-							callback(nil, err)
-							continue
-						}
-					} else {
-						depth, err := o.GetDepth(Symbol, int(o.callBackDepthLevel), o.callBackDepthTimeoutMilli)
-						if err != nil {
-							callback(nil, err)
-							continue
-						}
-						depth.UId = result.SeqId
-						depth.PreUId = result.PrevSeqId
-						callback(depth, nil)
-					}
+					o.emitOkxDepthCallback(Symbol, result.SeqId, result.PrevSeqId, callback, isZeroCopy, o.callBackDepthTimeoutMilli)
 				}
 			case <-okxSub.CloseChan():
 				log.Info("订阅已关闭: ", okxSub.Args)
@@ -415,6 +366,61 @@ func (o *OkxOrderBook) initOkxDepthOrderBook(result myokxapi.WsBooks) {
 
 	o.OrderBookReadyUpdateIdMap.Store(Symbol, result.SeqId)
 	o.OrderBookLastUpdateIdMap.Store(Symbol, result.SeqId)
+	o.storeOkxOrderBookDepth(result)
+}
+
+func (o *OkxOrderBook) emitOkxDepthCallback(symbol string, seqId, prevSeqId int64, callback func(depth *Depth, err error), isZeroCopy bool, timeoutMilli int64) {
+	if callback == nil || o.callBackDepthLevel == 0 {
+		return
+	}
+	if isZeroCopy {
+		err := o.ViewDepth(symbol, int(o.callBackDepthLevel), timeoutMilli, func(d *Depth) error {
+			d.UId = seqId
+			d.PreUId = prevSeqId
+			callback(d, nil)
+			return nil
+		})
+		if err != nil {
+			callback(nil, err)
+		}
+		return
+	}
+	depth, err := o.GetDepth(symbol, int(o.callBackDepthLevel), timeoutMilli)
+	if err != nil {
+		callback(nil, err)
+		return
+	}
+	depth.UId = seqId
+	depth.PreUId = prevSeqId
+	callback(depth, nil)
+}
+
+func okxDepthTargetTs(resultTs string, serverTimeDelta, nowMs int64) int64 {
+	ts, _ := strconv.ParseInt(resultTs, 10, 64)
+	targetTs := ts + serverTimeDelta
+	if targetTs > nowMs {
+		targetTs = nowMs
+	}
+	return targetTs
+}
+
+func (o *OkxOrderBook) storeOkxOrderBookDepth(result myokxapi.WsBooks) {
+	if okx_common == nil {
+		okx_common = (&okxCommon{}).InitCommon()
+	}
+	now := time.Now().UnixMilli()
+	var delta int64
+	if o.parent != nil {
+		delta = o.parent.serverTimeDelta
+	}
+	o.OrderBookMap.Store(result.InstId, &Depth{
+		UId:         result.SeqId,
+		PreUId:      result.PrevSeqId,
+		AccountType: okx_common.GetAccountTypeFromSymbol(result.InstId),
+		Exchange:    string(o.Exchange),
+		Symbol:      result.InstId,
+		Timestamp:   okxDepthTargetTs(result.Ts, delta, now),
+	})
 }
 func (o *OkxOrderBook) initAndClearOkxDepthOrderBook(result myokxapi.WsBooks) {
 	Symbol := result.InstId
@@ -486,25 +492,7 @@ func (o *OkxOrderBook) saveOkxDepthOrderBook(result myokxapi.WsBooks) error {
 	orderBook.PutBidLevels(bidPrices, bidQuantities)
 	orderBook.PutAskLevels(askPrices, askQuantities)
 
-	if okx_common == nil {
-		okx_common = (&okxCommon{}).InitCommon()
-	}
-	now := time.Now().UnixMilli()
-	ts, _ := strconv.ParseInt(result.Ts, 10, 64)
-	targetTs := ts + o.parent.serverTimeDelta
-	if targetTs > now {
-		targetTs = now
-	}
-
-	depth := &Depth{
-		UId:         result.SeqId,
-		PreUId:      result.PrevSeqId,
-		AccountType: okx_common.GetAccountTypeFromSymbol(result.InstId),
-		Exchange:    string(o.Exchange),
-		Symbol:      result.InstId,
-		Timestamp:   targetTs,
-	}
-	o.OrderBookMap.Store(Symbol, depth)
+	o.storeOkxOrderBookDepth(result)
 	return nil
 }
 
