@@ -8,7 +8,7 @@ require (
 	github.com/Hongssd/mybitgetapi v0.0.2
 	github.com/Hongssd/mybybitapi v0.1.8
 	github.com/Hongssd/mygateapi v0.2.4
-	github.com/Hongssd/myokxapi v0.5.4
+	github.com/Hongssd/myokxapi v0.5.6
 	github.com/Hongssd/mysunxapi v0.1.6
 	github.com/Hongssd/myxcoinapi v0.0.8
 	github.com/emirpasic/gods v1.18.1
