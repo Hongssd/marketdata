@@ -5,9 +5,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Hongssd/mybitgetapi"
 	"github.com/Hongssd/mybybitapi"
 	"github.com/Hongssd/mygateapi"
-	"github.com/Hongssd/mybitgetapi"
+	"github.com/Hongssd/mypolymarketapi"
 )
 
 type MySyncMap[K any, V any] struct {
@@ -217,5 +218,19 @@ func XcoinGetServerTimeDelta() (int64, error) {
 	}
 	t2 := time.Now().UnixMilli()
 	delta := stringToInt64(res.Data.Time) - (t2+t1)/2
+	return -delta, nil
+}
+
+// PolymarketGetServerTimeDelta 通过 CLOB GET /time（秒级 Unix）计算本地与服务器时间差。
+func PolymarketGetServerTimeDelta() (int64, error) {
+	t1 := time.Now().UnixMilli()
+	clob := &mypolymarketapi.CLOBRestClient{}
+	res, err := clob.NewCLOBGetServerTime().Do()
+	if err != nil {
+		return 0, err
+	}
+	t2 := time.Now().UnixMilli()
+	serverTimeMilli := int64(res.Data) * 1000
+	delta := serverTimeMilli - (t2+t1)/2
 	return -delta, nil
 }
